@@ -19,7 +19,7 @@ if __name__ == "__main__":
     
     uvicorn.run(
         "backend.main:app",
-        host="127.0.0.1",
+        host="0.0.0.0",  # Listen on all interfaces
         port=8000,
         reload="--reload" in sys.argv,
         reload_excludes=["scripts/**/*", "scripts/*", "data/*"],
