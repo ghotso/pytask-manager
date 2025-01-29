@@ -31,13 +31,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user with nobody's UID and users GID to match Unraid
-RUN groupadd -g 100 pytaskgroup && \
-    useradd -u 99 -g pytaskgroup -m -r -s /bin/bash pytask
+# Create non-root user with nobody's UID (99) and use existing users group (100)
+RUN useradd -u 99 -g 100 -m -r -s /bin/bash pytask
 
 # Create necessary directories and set permissions
 RUN mkdir -p /app/data /app/scripts /app/logs \
-    && chown -R pytask:pytaskgroup /app \
+    && chown -R pytask:users /app \
     && chmod 777 /app/data /app/scripts /app/logs
 
 # Copy backend requirements and install dependencies
@@ -67,7 +66,7 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8000/api/health || exit 1
 
 # Ensure all files are owned by pytask user and are accessible
-RUN chown -R pytask:pytaskgroup /app && \
+RUN chown -R pytask:users /app && \
     chmod -R 755 /app && \
     chmod 777 /app/data /app/scripts /app/logs
 
