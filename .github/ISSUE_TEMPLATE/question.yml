@@ -1,0 +1,76 @@
+name: Question
+description: Ask a question about PyTask-Manager
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for your interest in PyTask-Manager! Before asking a question, please check:
+        - [Documentation](../../README.md)
+        - [Existing issues](../issues)
+        - [Discussions](../discussions)
+
+  - type: textarea
+    id: question
+    attributes:
+      label: What's your question?
+      description: A clear and concise description of your question.
+      placeholder: I would like to know how to...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Question Category
+      description: What area is your question about?
+      options:
+        - Installation & Setup
+        - Configuration
+        - Script Management
+        - Dependencies
+        - Scheduling
+        - Execution
+        - Docker Deployment
+        - Development
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: Provide any additional context that might help us answer your question.
+      placeholder: |
+        - What have you tried so far?
+        - What's your current setup?
+        - Any relevant configuration or code snippets?
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: What version of PyTask-Manager are you using?
+      placeholder: e.g., v1.0.0 or commit hash
+
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment Method
+      description: How are you running PyTask-Manager?
+      options:
+        - Docker Container
+        - Local Development
+        - Other (please specify in additional context)
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Checklist
+      description: Before submitting, please confirm
+      options:
+        - label: I have checked the documentation and existing issues
+          required: true
+        - label: I have provided all relevant information
+          required: true 

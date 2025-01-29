@@ -1,0 +1,18 @@
+{
+  "include": ["backend"],
+  "exclude": ["**/node_modules", "**/__pycache__"],
+  "venv": "venv",
+  "venvPath": ".",
+  "reportMissingImports": true,
+  "reportMissingTypeStubs": false,
+  "pythonVersion": "3.12",
+  "pythonPlatform": "Linux",
+  "typeCheckingMode": "basic",
+  "ignore": ["**/migrations/versions/**"],
+  "reportOptionalMemberAccess": false,
+  "reportOptionalCall": false,
+  "reportOptionalSubscript": false,
+  "reportOptionalIterable": false,
+  "reportOptionalContextManager": false,
+  "reportOptionalOperand": false
+} 

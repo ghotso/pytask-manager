@@ -1,0 +1,8 @@
+{
+  "devDependencies": {
+    "@tsconfig/node18": "^18.2.4"
+  },
+  "dependencies": {
+    "@monaco-editor/react": "^4.6.0"
+  }
+}
