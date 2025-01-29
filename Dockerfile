@@ -28,11 +28,17 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     python3-dev \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Create necessary directories with correct permissions
+# Create non-root user with nobody's UID and users GID to match Unraid
+RUN groupadd -g 100 pytaskgroup && \
+    useradd -u 99 -g pytaskgroup -m -r -s /bin/bash pytask
+
+# Create necessary directories and set permissions
 RUN mkdir -p /app/data /app/scripts /app/logs \
-    && chmod 755 /app/data /app/scripts /app/logs
+    && chown -R pytask:pytaskgroup /app \
+    && chmod 777 /app/data /app/scripts /app/logs
 
 # Copy backend requirements and install dependencies
 COPY backend/requirements.txt ./
@@ -60,9 +66,12 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8000/api/health || exit 1
 
-# Create non-root user and switch to it
-RUN useradd -m -r -s /bin/bash pytask \
-    && chown -R pytask:pytask /app
+# Ensure all files are owned by pytask user and are accessible
+RUN chown -R pytask:pytaskgroup /app && \
+    chmod -R 755 /app && \
+    chmod 777 /app/data /app/scripts /app/logs
+
+# Switch to non-root user
 USER pytask
 
 # Run the application
