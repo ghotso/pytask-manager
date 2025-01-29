@@ -26,6 +26,7 @@ export interface Execution {
   started_at: string;
   ended_at?: string;
   error_message?: string;
+  log_output?: string;
 }
 
 export enum ExecutionStatus {

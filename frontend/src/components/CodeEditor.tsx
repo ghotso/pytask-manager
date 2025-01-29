@@ -1,5 +1,5 @@
 import { ReactElement, useRef, useEffect } from 'react';
-import Editor, { Monaco, OnMount } from '@monaco-editor/react';
+import Editor, { OnMount } from '@monaco-editor/react';
 import { useMantineTheme } from '@mantine/core';
 import * as monaco from 'monaco-editor';
 
