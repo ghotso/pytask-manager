@@ -108,15 +108,56 @@ The development server will be available at:
 
 ## Environment Variables
 
-- `DATABASE_URL`: SQLite database URL (default: `sqlite:///app/data/pytask.db`)
-- `SCRIPTS_DIR`: Directory for storing Python scripts (default: `/app/scripts`)
-- `LOGS_DIR`: Directory for storing execution logs (default: `/app/logs`)
+All environment variables are optional and have sensible defaults:
+
+- `PYTASK_DATABASE_URL`: SQLite database URL
+  - Default: `sqlite+aiosqlite:///data/data.db`
+  - Docker default: `sqlite:///app/data/pytask.db`
+
+- `PYTASK_SCRIPTS_DIR`: Directory for storing Python scripts
+  - Default: `./data/scripts`
+  - Docker default: `/app/scripts`
+
+- `PYTASK_LOGS_DIR`: Directory for storing execution logs
+  - Default: `./data/logs`
+  - Docker default: `/app/logs`
+
+- `PYTASK_DEBUG`: Enable debug mode
+  - Default: `true` (set to `false` in production)
+
+- `PYTASK_LOG_LEVEL`: Logging level
+  - Default: `INFO`
+  - Options: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`
+
+- `PYTASK_MAX_EXECUTION_TIME`: Maximum script execution time in seconds
+  - Default: `300` (5 minutes)
+
+The environment variables in the docker-compose.yml file are optional but recommended for explicit configuration. If not set, the application will use the default values.
 
 ## API Documentation
 
 The API documentation is automatically generated and available at:
 - Swagger UI: `http://localhost:8000/docs`
 - ReDoc: `http://localhost:8000/redoc`
+
+## Docker Image Tags
+
+The Docker image is available on GitHub Container Registry (GHCR) with the following tags:
+
+- `latest`: Always points to the latest stable version (from main branch)
+- `vX.Y.Z`: Specific version releases (e.g., v1.0.0)
+- `vX.Y`: Minor version releases (e.g., v1.0)
+- `vX`: Major version releases (e.g., v1)
+
+You can use a specific version by updating the image tag in your docker-compose.yml:
+
+```yaml
+services:
+  pytask-manager:
+    image: ghcr.io/yourusername/pytask-manager:v1.0.0  # Use specific version
+    # or
+    image: ghcr.io/yourusername/pytask-manager:latest  # Always use latest version
+```
 
 ## Contributing
 

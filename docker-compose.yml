@@ -9,8 +9,11 @@ services:
       - ./data:/app/data        # For database and other persistent data
       - ./scripts:/app/scripts  # For user scripts
       - ./logs:/app/logs        # For execution logs
+    # Optional: Environment variables (will use defaults if not set)
     environment:
-      - DATABASE_URL=sqlite:///app/data/pytask.db
-      - SCRIPTS_DIR=/app/scripts
-      - LOGS_DIR=/app/logs
+      - PYTASK_DATABASE_URL=sqlite:///app/data/pytask.db
+      - PYTASK_SCRIPTS_DIR=/app/scripts
+      - PYTASK_LOGS_DIR=/app/logs
+      # - PYTASK_DEBUG=false    # Uncomment to disable debug mode
+      # - PYTASK_LOG_LEVEL=INFO # Uncomment to change log level
     restart: unless-stopped 
