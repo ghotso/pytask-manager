@@ -1,146 +1,174 @@
-# PyTask-Manager
+# PyTask Manager
 
-A self-hosted web application for creating, managing, and executing Python scripts in isolated environments. Features include dependency management, scheduled execution, and real-time logging.
+A modern web application for managing, scheduling, and executing Python scripts with dependency management and real-time execution monitoring.
 
 ## Features
 
-- 🐍 Create and edit Python scripts with syntax highlighting
-- 📦 Per-script dependency management with isolated virtual environments
-- ⏰ Schedule script execution using cron expressions
-- 📊 Real-time execution logs and history
-- 🔒 Secure script execution in isolated environments
-- 🎨 Modern, responsive web interface
-- 🔄 WebSocket-based real-time script execution feedback
+- 🐍 Python Script Management
+  - Write and edit Python scripts directly in the browser
+  - Syntax highlighting and code completion
+  - Real-time script execution with live output
+  - View execution history and logs
 
-## Technology Stack
+- 📦 Dependency Management
+  - Specify Python package dependencies for each script
+  - Automatic dependency installation and version management
+  - Virtual environment isolation for each script
 
-### Frontend
-- React with TypeScript
-- Mantine UI components
-- Monaco Editor for code editing
-- WebSocket for real-time updates
+- ⏰ Task Scheduling
+  - Schedule scripts using cron expressions
+  - Enable/disable scheduled executions
+  - View upcoming scheduled runs
 
-### Backend
-- FastAPI (Python)
-- SQLAlchemy for database management
-- APScheduler for task scheduling
-- Virtual environments for script isolation
+- 🏷️ Organization
+  - Tag scripts for better organization
+  - Search and filter scripts by tags
+  - Add descriptions and metadata
 
-## Quick Start with Docker
+## Installation
 
-```bash
-# Pull the latest image
-docker pull ghcr.io/yourusername/pytask-manager:latest
+### Prerequisites
 
-# Run the container
-docker run -d \
-  -p 8000:8000 \
-  -v /path/to/scripts:/app/scripts \
-  ghcr.io/yourusername/pytask-manager:latest
-```
+- Docker
+- Docker Compose
+- Git
+
+### Quick Start
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/yourusername/pytask-manager.git
+   cd pytask-manager
+   ```
+
+2. Create necessary directories:
+   ```bash
+   mkdir -p data scripts logs
+   ```
+
+3. Create a docker-compose.yml file:
+   ```yaml
+   version: '3.8'
+   
+   services:
+     pytask-manager:
+       image: ghcr.io/yourusername/pytask-manager:latest
+       ports:
+         - "8000:8000"  # Backend + WebSocket + Static Files
+       volumes:
+         - ./data:/app/data        # For database and other persistent data
+         - ./scripts:/app/scripts  # For user scripts
+         - ./logs:/app/logs        # For execution logs
+       environment:
+         - DATABASE_URL=sqlite:///app/data/pytask.db
+         - SCRIPTS_DIR=/app/scripts
+         - LOGS_DIR=/app/logs
+       restart: unless-stopped
+   ```
+
+4. Start the application:
+   ```bash
+   docker-compose up -d
+   ```
+
+5. Access the application:
+   - Open your browser and navigate to `http://localhost:8000`
+   - The API documentation is available at `http://localhost:8000/docs`
+
+### Directory Structure
+
+- `./data/`: Contains the SQLite database and other persistent data
+  - `pytask.db`: The main SQLite database file
+- `./scripts/`: Contains user Python scripts and their virtual environments
+- `./logs/`: Contains execution logs and output files
 
 ## Development Setup
 
-### Prerequisites
-- Python 3.12+
-- Node.js 20+
-- npm or yarn
-- Git
+If you want to run the application in development mode:
 
-### Backend Setup
-```bash
-# Create and activate virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+1. Start the backend:
+   ```bash
+   cd backend
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   pip install -r requirements.txt
+   uvicorn main:app --reload --port 8000
+   ```
 
-# Install dependencies
-cd backend
-pip install -r requirements.txt
+2. Start the frontend:
+   ```bash
+   cd frontend
+   npm install
+   npm run dev
+   ```
 
-# Run development server
-uvicorn main:app --reload
-```
+The development server will be available at:
+- Frontend: `http://localhost:5173`
+- Backend: `http://localhost:8000`
 
-### Frontend Setup
-```bash
-# Install dependencies
-cd frontend
-npm install
+## Environment Variables
 
-# Run development server
-npm run dev
-```
+- `DATABASE_URL`: SQLite database URL (default: `sqlite:///app/data/pytask.db`)
+- `SCRIPTS_DIR`: Directory for storing Python scripts (default: `/app/scripts`)
+- `LOGS_DIR`: Directory for storing execution logs (default: `/app/logs`)
 
-## Project Structure
+## API Documentation
 
-```
-.
-├── backend/
-│   ├── api/              # API routes and models
-│   ├── database/         # Database models and configuration
-│   ├── script_manager/   # Script execution and venv management
-│   └── requirements.txt  # Python dependencies
-├── frontend/
-│   ├── src/
-│   │   ├── components/   # React components
-│   │   ├── pages/       # Page components
-│   │   └── api/         # API client
-│   └── package.json     # Node.js dependencies
-├── scripts/             # Directory for user scripts
-├── Dockerfile          # Multi-stage build for production
-└── docker-compose.yml  # Development environment setup
-```
-
-## Configuration
-
-### Environment Variables
-
-- `SCRIPTS_DIR`: Directory for script storage (default: `/app/scripts`)
-- `DATABASE_URL`: SQLite database location (default: `sqlite:///./data/app.db`)
-- `FRONTEND_DIR`: Location of frontend static files (default: `/app/frontend/dist`)
-
-## Deployment
-
-### GitHub Actions
-
-The project uses GitHub Actions for CI/CD. On every push to main or tag creation:
-1. Builds the Docker image
-2. Runs tests
-3. Pushes to GitHub Container Registry (GHCR)
-
-Required secrets:
-- `GHCR_TOKEN`: GitHub token with package write permissions
-
-### Manual Deployment
-
-1. Build the image:
-```bash
-docker build -t pytask-manager .
-```
-
-2. Run the container:
-```bash
-docker run -d \
-  -p 8000:8000 \
-  -v /path/to/scripts:/app/scripts \
-  pytask-manager
-```
-
-## Security Considerations
-
-- Scripts run in isolated virtual environments
-- Dependencies are installed from PyPI only
-- No network access from script environments by default
-- Regular security updates via Dependabot
+The API documentation is automatically generated and available at:
+- Swagger UI: `http://localhost:8000/docs`
+- ReDoc: `http://localhost:8000/redoc`
 
 ## Contributing
 
 1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
+2. Create a feature branch: `git checkout -b feature-name`
+3. Commit your changes: `git commit -am 'Add feature'`
+4. Push to the branch: `git push origin feature-name`
+5. Submit a pull request
 
 ## License
 
-MIT License - see LICENSE file for details 
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Security
+
+- All script executions are isolated in their own virtual environments
+- Dependencies are installed from PyPI using pip
+- File system access is restricted to the script's directory
+- API endpoints require authentication (if enabled)
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Port Already in Use**
+   ```bash
+   # Check what's using port 8000
+   sudo lsof -i :8000
+   # Stop the existing process or change the port in docker-compose.yml
+   ```
+
+2. **Permission Issues**
+   ```bash
+   # Ensure correct permissions on directories
+   chmod 755 data scripts logs
+   ```
+
+3. **Container Won't Start**
+   ```bash
+   # Check container logs
+   docker-compose logs -f
+   ```
+
+### Getting Help
+
+- Open an issue on GitHub
+- Check the API documentation for endpoint details
+- Review the logs in the `./logs` directory
+
+## Acknowledgments
+
+- Built with FastAPI and React
+- Uses Mantine UI components
+- Monaco Editor for code editing
+- SQLAlchemy for database management 
