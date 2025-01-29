@@ -2,9 +2,11 @@
 FROM node:20-slim as frontend-builder
 WORKDIR /app/frontend
 
-# Copy package files
-COPY frontend/package*.json ./
-RUN npm ci
+# Copy package files for better layer caching
+COPY frontend/package.json frontend/package-lock.json ./
+
+# Install dependencies with clean install
+RUN npm install
 
 # Copy frontend source
 COPY frontend/ ./
