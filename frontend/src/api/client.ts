@@ -61,12 +61,12 @@ export const scriptsApi = {
     return response.data;
   },
 
-  create: async (data: any) => {
+  create: async (data: CreateScriptData) => {
     const response = await api.post<Script>('/api/scripts', data);
     return response.data;
   },
 
-  update: async (id: number, data: any) => {
+  update: async (id: number, data: UpdateScriptData) => {
     const response = await api.put<Script>(`/api/scripts/${id}`, data);
     return response.data;
   },

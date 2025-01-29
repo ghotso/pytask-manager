@@ -386,7 +386,7 @@ export function ScriptDetailPage() {
         
         // Can't enable if dependencies not installed
         const hasUninstalledDeps = script?.dependencies.some(
-          dep => !dep.installed_version
+          (dep: Dependency) => !dep.installed_version
         );
         if (hasUninstalledDeps) {
           notifications.show({
@@ -801,7 +801,7 @@ export function ScriptDetailPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {dependencies.map((dep) => (
+                      {dependencies.map((dep: Dependency) => (
                         <tr key={`${dep.package_name}-${dep.version_spec}`} style={{ backgroundColor: '#1A1B1E' }}>
                           <td style={{ 
                             padding: '12px 16px',

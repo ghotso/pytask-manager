@@ -11,41 +11,39 @@ export interface Dependency {
   installed_version?: string;
 }
 
-export interface Script {
-  id: number;
-  name: string;
-  description: string | null;
-  content: string;
-  is_active: boolean;
-  tags: Tag[];
-  dependencies: Dependency[];
-  schedules: Schedule[];
-  created_at: string;
-  updated_at: string;
-}
-
-export interface Execution {
-  id: number;
-  script_id: number;
-  started_at: string;
-  completed_at?: string;
-  status: ExecutionStatus;
-  log_output?: string;
-  error_message?: string;
-}
-
 export interface Schedule {
   id?: number;
   script_id?: number;
   cron_expression: string;
   description?: string;
   created_at?: string;
-  updated_at?: string;
+}
+
+export interface Execution {
+  id: number;
+  script_id: number;
+  status: ExecutionStatus;
+  started_at: string;
+  ended_at?: string;
+  error_message?: string;
 }
 
 export enum ExecutionStatus {
-  SUCCESS = 'success',
-  PENDING = 'pending',
-  RUNNING = 'running',
-  FAILED = 'failure'
+  PENDING = 'PENDING',
+  RUNNING = 'RUNNING',
+  SUCCESS = 'SUCCESS',
+  FAILED = 'FAILED'
+}
+
+export interface Script {
+  id: number;
+  name: string;
+  description: string;
+  content: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  tags: Tag[];
+  dependencies: Dependency[];
+  schedules: Schedule[];
 } 

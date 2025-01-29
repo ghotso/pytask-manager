@@ -10,14 +10,17 @@
   "dependencies": {
     "@emotion/react": "^11.11.3",
     "@mantine/core": "^7.4.1",
+    "@mantine/form": "^7.4.1",
     "@mantine/hooks": "^7.4.1",
     "@mantine/notifications": "^7.4.1",
     "@monaco-editor/react": "^4.6.0",
     "@tabler/icons-react": "^2.46.0",
     "axios": "^1.6.5",
+    "monaco-editor": "^0.45.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-router-dom": "^6.21.3"
+    "react-router-dom": "^6.21.3",
+    "swr": "^2.2.4"
   },
   "devDependencies": {
     "@types/react": "^18.2.48",

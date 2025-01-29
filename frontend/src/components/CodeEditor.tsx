@@ -1,6 +1,7 @@
 import { ReactElement, useRef, useEffect } from 'react';
-import Editor, { Monaco } from '@monaco-editor/react';
+import Editor, { Monaco, OnMount } from '@monaco-editor/react';
 import { useMantineTheme } from '@mantine/core';
+import * as monaco from 'monaco-editor';
 
 interface CodeEditorProps {
   value: string;
@@ -8,11 +9,11 @@ interface CodeEditorProps {
   height?: number | string;
 }
 
-export function CodeEditor({ value, onChange, height = '400px' }: CodeEditorProps): ReactElement {
-  const editorRef = useRef<any>(null);
+export function CodeEditor({ value, onChange }: CodeEditorProps): ReactElement {
+  const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const theme = useMantineTheme();
 
-  const handleEditorDidMount = (editor: any, monaco: Monaco) => {
+  const handleEditorDidMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
     
     // Configure Monaco editor theme
@@ -42,7 +43,7 @@ export function CodeEditor({ value, onChange, height = '400px' }: CodeEditorProp
     });
   };
 
-  const updateEditorHeight = (editor: any) => {
+  const updateEditorHeight = (editor: monaco.editor.IStandaloneCodeEditor) => {
     const contentHeight = Math.max(
       editor.getContentHeight(),
       300 // Minimum height in pixels (about 14 lines)
@@ -60,7 +61,9 @@ export function CodeEditor({ value, onChange, height = '400px' }: CodeEditorProp
       const editor = editorRef.current;
       const position = editor.getPosition();
       editor.setValue(value);
-      editor.setPosition(position);
+      if (position) {
+        editor.setPosition(position);
+      }
       updateEditorHeight(editor);
     }
   }, [value]);
