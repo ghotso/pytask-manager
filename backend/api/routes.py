@@ -837,4 +837,4 @@ async def _execute_script(
 
     finally:
         # Clean up environment
-        script_manager.cleanup() 
+        script_manager.cleanup()

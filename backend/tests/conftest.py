@@ -4,7 +4,7 @@ import os
 from typing import AsyncGenerator
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import sessionmaker
 
 from ..config import settings
@@ -39,14 +39,16 @@ async def engine():
 @pytest.fixture
 async def session(engine) -> AsyncGenerator[AsyncSession, None]:
     """Create a test database session."""
-    async_session = sessionmaker(
+    async_session = async_sessionmaker(
         engine, class_=AsyncSession, expire_on_commit=False
     )
     
-    async with async_session() as session:
+    session = async_session()
+    try:
         yield session
-        # Rollback any changes made in the test
         await session.rollback()
+    finally:
+        await session.close()
 
 @pytest.fixture(autouse=True)
 def test_env():
