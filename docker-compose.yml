@@ -6,9 +6,10 @@ services:
     ports:
       - "8000:8000"  # Backend + WebSocket + Static Files
     volumes:
-      - ./data:/app/data        # For database and other persistent data
-      - ./scripts:/app/scripts  # For user scripts
-      - ./logs:/app/logs        # For execution logs
+      # Only map directories that need to persist data
+      - ./data:/app/data        # SQLite database
+      - ./scripts:/app/scripts  # User Python scripts
+      - ./logs:/app/logs        # Execution logs
     # Optional: Environment variables (will use defaults if not set)
     environment:
       - PYTASK_DATABASE_URL=sqlite:///app/data/pytask.db

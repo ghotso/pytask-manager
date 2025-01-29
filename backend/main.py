@@ -8,8 +8,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from .api.routes import router
-from .config import settings
+from api.routes import router
+from config import settings
 from .database import create_tables, get_session_context
 from .logging_config import configure_logging
 from .scheduler import scheduler_service
@@ -48,9 +48,14 @@ async def lifespan(app: FastAPI):
         raise
 
 # Create FastAPI app
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(
+    title="PyTask Manager",
+    description="A modern web application for managing, scheduling, and executing Python scripts",
+    version="1.0.0",
+    lifespan=lifespan
+)
 
-# Add CORS middleware
+# Configure CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -58,6 +63,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Mount static files for frontend
+app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
 # Include API routes
 app.include_router(router, prefix="/api")

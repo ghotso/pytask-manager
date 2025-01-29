@@ -32,6 +32,7 @@ COPY --from=frontend-builder /app/dist /app/static
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
 ENV DATABASE_URL=sqlite:///app/data/pytask.db
 ENV SCRIPTS_DIR=/app/scripts
 ENV LOGS_DIR=/app/logs
