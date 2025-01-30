@@ -1,7 +1,7 @@
 """Script scheduling service."""
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -38,7 +38,7 @@ class SchedulerService:
             for execution in stale_executions.scalars():
                 logger.warning(f"Found stale execution {execution.id}, marking as failed")
                 execution.status = ExecutionStatus.FAILURE
-                execution.completed_at = datetime.utcnow()
+                execution.completed_at = datetime.now(timezone.utc)
                 execution.error_message = "Execution interrupted by server restart"
             await session.commit()
         
@@ -92,7 +92,7 @@ class SchedulerService:
             for execution in running_executions.scalars():
                 logger.warning(f"Marking execution {execution.id} as failed due to shutdown")
                 execution.status = ExecutionStatus.FAILURE
-                execution.completed_at = datetime.utcnow()
+                execution.completed_at = datetime.now(timezone.utc)
                 execution.error_message = "Execution interrupted by server shutdown"
             await session.commit()
         
@@ -182,7 +182,7 @@ class SchedulerService:
                     script_id=script_id,
                     schedule_id=schedule_id,
                     status=ExecutionStatus.RUNNING,
-                    started_at=datetime.utcnow()
+                    started_at=datetime.now(timezone.utc)
                 )
                 session.add(execution)
                 await session.commit()
@@ -202,7 +202,7 @@ class SchedulerService:
                     execution = await session.get(Execution, execution_id)
                     if execution:
                         execution.status = ExecutionStatus.FAILURE
-                        execution.completed_at = datetime.utcnow()
+                        execution.completed_at = datetime.now(timezone.utc)
                         execution.error_message = "Execution cancelled"
                         await session.commit()
             except Exception as e:
@@ -211,7 +211,7 @@ class SchedulerService:
                     execution = await session.get(Execution, execution_id)
                     if execution:
                         execution.status = ExecutionStatus.FAILURE
-                        execution.completed_at = datetime.utcnow()
+                        execution.completed_at = datetime.now(timezone.utc)
                         execution.error_message = str(e)
                         await session.commit()
             
@@ -222,7 +222,7 @@ class SchedulerService:
                     execution = await session.get(Execution, execution_id)
                     if execution:
                         execution.status = ExecutionStatus.FAILURE
-                        execution.completed_at = datetime.utcnow()
+                        execution.completed_at = datetime.now(timezone.utc)
                         execution.error_message = f"Execution handling failed: {str(e)}"
                         await session.commit()
         finally:
@@ -253,7 +253,7 @@ class SchedulerService:
                 execution = await session.get(Execution, execution_id)
                 if execution:
                     execution.status = ExecutionStatus.SUCCESS
-                    execution.completed_at = datetime.utcnow()
+                    execution.completed_at = datetime.now(timezone.utc)
                     execution.log_output = "".join(output)
                     await session.commit()
                     
@@ -266,7 +266,7 @@ class SchedulerService:
                 execution = await session.get(Execution, execution_id)
                 if execution:
                     execution.status = ExecutionStatus.FAILURE
-                    execution.completed_at = datetime.utcnow()
+                    execution.completed_at = datetime.now(timezone.utc)
                     execution.error_message = str(e)
                     execution.log_output = "".join(output)
                     await session.commit()

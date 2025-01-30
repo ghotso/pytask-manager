@@ -1,7 +1,11 @@
 """Development server runner."""
+import logging
 import os
 import sys
 from pathlib import Path
+
+from alembic.config import Config
+from alembic import command
 
 if __name__ == "__main__":
     # Get the directory containing this script
@@ -9,6 +13,30 @@ if __name__ == "__main__":
     
     # Add the root directory to Python path
     sys.path.insert(0, str(root_dir))
+    
+    from backend.config import settings
+    
+    # Configure logging
+    settings.configure_logging()
+    logger = logging.getLogger(__name__)
+    
+    # Run database migrations
+    try:
+        # Ensure the data directory exists
+        Path(settings.data_dir).mkdir(parents=True, exist_ok=True)
+        
+        # Create alembic.ini configuration
+        alembic_cfg = Config()
+        alembic_cfg.set_main_option('script_location', 'migrations')
+        alembic_cfg.set_main_option('sqlalchemy.url', 
+                                   settings.database_url.replace('sqlite+aiosqlite:', 'sqlite:'))
+        
+        # Run migrations
+        command.upgrade(alembic_cfg, 'head')
+        logger.info("Database migrations completed successfully")
+    except Exception as e:
+        logger.error(f"Error running migrations: {e}")
+        raise
     
     import uvicorn
     

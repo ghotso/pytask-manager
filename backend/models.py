@@ -1,10 +1,15 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import List, Optional
 
 from sqlalchemy import (Boolean, Column, DateTime, Enum as SQLEnum, ForeignKey,
                        Integer, String, Table)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+
+def utc_now() -> datetime:
+    """Return current UTC datetime with timezone information."""
+    return datetime.now(timezone.utc)
 
 
 class Base(DeclarativeBase):
@@ -37,9 +42,9 @@ class Script(Base):
     name: Mapped[str] = mapped_column(String(255), unique=True)
     description: Mapped[Optional[str]] = mapped_column(String(1000))
     content: Mapped[str] = mapped_column(String)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=False)
     

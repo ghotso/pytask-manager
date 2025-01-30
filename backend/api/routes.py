@@ -1,7 +1,7 @@
 """API routes for the application."""
 import logging
 from typing import List, Optional, cast
-from datetime import datetime
+from datetime import datetime, timezone
 import os
 from pathlib import Path
 
@@ -289,13 +289,29 @@ async def delete_script(
     session: AsyncSession = Depends(get_session),
 ) -> None:
     """Delete a script."""
-    script = await _get_script(session, script_id)
-    
-    # Delete script and clean up its environment
-    manager = ScriptManager(script_id, base_dir=str(settings.scripts_dir))
-    manager.cleanup()
-    await session.delete(script)
-    await session.commit()
+    try:
+        script = await _get_script(session, script_id)
+        
+        # Remove any active schedules from the scheduler
+        for schedule in script.schedules:
+            await scheduler_service.remove_job(schedule)
+        
+        # Delete script and clean up its environment
+        manager = ScriptManager(script_id, base_dir=str(settings.scripts_dir))
+        try:
+            manager.cleanup()
+        except Exception as e:
+            logger.warning(f"Failed to clean up script directory: {e}")
+            # Continue with deletion even if cleanup fails
+        
+        # Delete the script from the database
+        await session.delete(script)
+        await session.commit()
+        
+    except Exception as e:
+        logger.error(f"Error deleting script: {str(e)}", exc_info=True)
+        await session.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/scripts/{script_id}/schedules", response_model=ScheduleRead)
@@ -442,7 +458,7 @@ async def execute_script(
     execution: Execution = Execution(
         script_id=script_id,
         status=ExecutionStatus.PENDING,
-        started_at=datetime.utcnow(),
+        started_at=datetime.now(timezone.utc),
     )
     session.add(execution)
     await session.commit()
@@ -474,7 +490,7 @@ async def execute_script(
     except Exception as e:
         # Update execution record with error
         execution.status = ExecutionStatus.FAILURE
-        execution.completed_at = datetime.utcnow()
+        execution.completed_at = datetime.now(timezone.utc)
         execution.error_message = f"Failed to set up script environment: {str(e)}"
         await session.commit()
         
@@ -557,7 +573,7 @@ async def websocket_endpoint(
         execution = Execution(
             script=script,
             status=ExecutionStatus.RUNNING,
-            started_at=datetime.utcnow()
+            started_at=datetime.now(timezone.utc)
         )
         session.add(execution)
         await session.commit()
@@ -624,7 +640,7 @@ async def websocket_endpoint(
     finally:
         # Always update completion time and ensure status is set
         if execution:
-            execution.completed_at = datetime.utcnow()
+            execution.completed_at = datetime.now(timezone.utc)
             if execution.status == ExecutionStatus.RUNNING:
                 execution.status = ExecutionStatus.FAILURE
                 execution.error_message = "Execution interrupted"
@@ -836,7 +852,7 @@ async def _execute_script(
 
         # Update execution record with success
         execution.status = ExecutionStatus.SUCCESS
-        execution.completed_at = datetime.utcnow()
+        execution.completed_at = datetime.now(timezone.utc)
         execution.log_output = "".join(output)
         await session.commit()
 
@@ -845,7 +861,7 @@ async def _execute_script(
         
         # Update execution record with error
         execution.status = ExecutionStatus.FAILURE
-        execution.completed_at = datetime.utcnow()
+        execution.completed_at = datetime.now(timezone.utc)
         execution.error_message = str(e)
         execution.log_output = "".join(output) if output else ""
         await session.commit()

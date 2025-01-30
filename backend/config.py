@@ -7,6 +7,11 @@ from typing import Optional
 from pydantic_settings import BaseSettings
 
 
+def get_project_root() -> Path:
+    """Get the project root directory."""
+    return Path(__file__).parent.parent
+
+
 class Settings(BaseSettings):
     """Application settings."""
     
@@ -14,16 +19,16 @@ class Settings(BaseSettings):
     debug: bool = True  # Set to False in production
     
     # Base directory for all data
-    data_dir: Path = Path("/app/data")
+    data_dir: Path = get_project_root() / "data"
     
     # Scripts directory
-    scripts_dir: Path = Path("/app/scripts")
+    scripts_dir: Path = get_project_root() / "scripts"
     
     # Logs directory (independent of data_dir)
-    logs_dir: Path = Path("/app/logs")
+    logs_dir: Path = get_project_root() / "logs"
     
     # Database settings
-    database_url: str = "sqlite+aiosqlite:////app/data/data.db"  # Use absolute path with 4 slashes
+    database_url: str = "sqlite+aiosqlite:///data/data.db"  # Relative path for development
     
     # CORS settings
     cors_origins: list[str] = [
@@ -86,17 +91,19 @@ settings = Settings()
 # Ensure required directories exist with proper permissions
 for directory in [settings.data_dir, settings.scripts_dir, settings.logs_dir]:
     os.makedirs(str(directory), exist_ok=True)
-    os.chmod(str(directory), 0o777)  # Full permissions for mounted volumes
 
 # Get database path from URL
 db_path = Path(settings.database_url.split("sqlite+aiosqlite:///")[1])
+if db_path.is_absolute():
+    db_file = db_path
+else:
+    db_file = settings.data_dir / db_path
 
 # Create database directory if it doesn't exist
-os.makedirs(str(db_path.parent), exist_ok=True)
-os.chmod(str(db_path.parent), 0o777)
+os.makedirs(str(db_file.parent), exist_ok=True)
 
 # Create database file with proper permissions if it doesn't exist
-if not db_path.exists():
-    db_path.touch()
-    os.chmod(str(db_path), 0o666)  # rw-rw-rw- permissions for database file
-    logging.info(f"Created database file at {db_path} with permissions 666") 
+if not db_file.exists():
+    db_file.touch()
+    os.chmod(str(db_file), 0o666)  # rw-rw-rw- permissions for database file
+    logging.info(f"Created database file at {db_file} with permissions 666") 

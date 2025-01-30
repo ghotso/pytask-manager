@@ -4,7 +4,7 @@
  * @returns Formatted date string in the server's timezone
  */
 export function formatDate(dateString: string): string {
-  // The server uses Europe/Berlin timezone
+  // The server uses Europe/Vienna timezone
   const options: Intl.DateTimeFormatOptions = {
     year: 'numeric',
     month: '2-digit',
@@ -12,7 +12,8 @@ export function formatDate(dateString: string): string {
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
-    timeZone: 'Europe/Berlin',
+    hour12: false,
+    timeZone: 'Europe/Vienna',
   };
 
   return new Date(dateString).toLocaleString('de-DE', options);

@@ -26,12 +26,15 @@ import { scriptsApi } from '../api/client';
 import { Script, Dependency, ExecutionStatus } from '../types';
 
 export function ScriptList() {
+  // State for scripts list and UI controls
   const [scripts, setScripts] = useState<Script[]>([]);
+  // Loading state only used for initial load
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
 
   const loadScripts = async (isInitialLoad = false) => {
     try {
+      // Only show loading state on initial load
       if (isInitialLoad) {
         setIsLoading(true);
       }
@@ -40,6 +43,7 @@ export function ScriptList() {
       setScripts(data);
     } catch (error) {
       console.error('Failed to load scripts:', error);
+      // Only show error notification on initial load failures
       if (isInitialLoad) {
         notifications.show({
           title: 'Error',
@@ -48,6 +52,7 @@ export function ScriptList() {
         });
       }
     } finally {
+      // Clear loading state only if this was the initial load
       if (isInitialLoad) {
         setIsLoading(false);
       }
@@ -55,8 +60,15 @@ export function ScriptList() {
   };
 
   useEffect(() => {
+    // Initial load with loading state
     loadScripts(true);
-    const interval = setInterval(() => loadScripts(false), 5000);
+    
+    // Setup background polling without loading state
+    const interval = setInterval(() => {
+      loadScripts(false);
+    }, 5000);
+    
+    // Cleanup interval on unmount
     return () => clearInterval(interval);
   }, []);
 

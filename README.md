@@ -30,50 +30,55 @@ A modern web application for managing, scheduling, and executing Python scripts 
 ### Prerequisites
 
 - Docker
-- Docker Compose
-- Git
 
-### Quick Start
+### Quick Start with Docker
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/yourusername/pytask-manager.git
-   cd pytask-manager
-   ```
-
-2. Create necessary directories:
+1. Create necessary directories:
    ```bash
    mkdir -p data scripts logs
    ```
 
-3. Create a docker-compose.yml file:
+2. Create a docker-compose.yml file:
    ```yaml
    version: '3.8'
    
    services:
      pytask-manager:
-       image: ghcr.io/yourusername/pytask-manager:latest
+       image: ghcr.io/ghotso/pytask-manager:latest
+       container_name: PyTask-Manager
        ports:
-         - "8000:8000"  # Backend + WebSocket + Static Files
+         - "8479:8000"  # Adjust the port as needed
        volumes:
          - ./data:/app/data        # For database and other persistent data
          - ./scripts:/app/scripts  # For user scripts
          - ./logs:/app/logs        # For execution logs
        environment:
-         - DATABASE_URL=sqlite:///app/data/pytask.db
-         - SCRIPTS_DIR=/app/scripts
-         - LOGS_DIR=/app/logs
+         - TZ=Europe/Vienna        # Adjust timezone as needed
        restart: unless-stopped
    ```
 
-4. Start the application:
+3. Start the application:
    ```bash
    docker-compose up -d
    ```
 
-5. Access the application:
-   - Open your browser and navigate to `http://localhost:8000`
-   - The API documentation is available at `http://localhost:8000/docs`
+4. Access the application:
+   - Open your browser and navigate to `http://localhost:8479`
+
+### Alternative: Direct Docker Run
+
+You can also run the container directly without docker-compose:
+
+```bash
+docker run -d \
+  --name='PyTask-Manager' \
+  -p '8479:8000/tcp' \
+  -v '/path/to/data':'/app/data':'rw' \
+  -v '/path/to/scripts':'/app/scripts':'rw' \
+  -v '/path/to/logs':'/app/logs':'rw' \
+  -e TZ="Europe/Vienna" \
+  'ghcr.io/ghotso/pytask-manager'
+```
 
 ### Directory Structure
 
@@ -81,6 +86,23 @@ A modern web application for managing, scheduling, and executing Python scripts 
   - `pytask.db`: The main SQLite database file
 - `./scripts/`: Contains user Python scripts and their virtual environments
 - `./logs/`: Contains execution logs and output files
+
+### Docker Image Tags
+
+The Docker image is available on GitHub Container Registry (GHCR) with the following tags:
+
+- `latest`: Always points to the latest stable version
+- `vX.Y.Z`: Specific version releases (e.g., v1.0.0)
+
+You can use a specific version by updating the image tag in your docker-compose.yml:
+
+```yaml
+services:
+  pytask-manager:
+    image: ghcr.io/ghotso/pytask-manager:v1.0.0  # Use specific version
+    # or
+    image: ghcr.io/ghotso/pytask-manager:latest  # Always use latest version
+```
 
 ## Development Setup
 
@@ -132,6 +154,11 @@ All environment variables are optional and have sensible defaults:
 - `PYTASK_MAX_EXECUTION_TIME`: Maximum script execution time in seconds
   - Default: `300` (5 minutes)
 
+- `TZ`: Container timezone (important for correct timestamp display)
+  - Example: `TZ=Europe/Vienna`
+  - This affects both the backend scheduling and frontend timestamp display
+  - Make sure this matches your local timezone
+
 The environment variables in the docker-compose.yml file are optional but recommended for explicit configuration. If not set, the application will use the default values.
 
 ## API Documentation
@@ -154,9 +181,9 @@ You can use a specific version by updating the image tag in your docker-compose.
 ```yaml
 services:
   pytask-manager:
-    image: ghcr.io/yourusername/pytask-manager:v1.0.0  # Use specific version
+    image: ghcr.io/ghotso/pytask-manager:v1.0.0  # Use specific version
     # or
-    image: ghcr.io/yourusername/pytask-manager:latest  # Always use latest version
+    image: ghcr.io/ghotso/pytask-manager:latest  # Always use latest version
 ```
 
 ## Contributing
