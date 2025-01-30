@@ -22,15 +22,11 @@ export function ScriptList() {
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
 
-  useEffect(() => {
-    loadScripts();
-  }, []);
-
   const loadScripts = async () => {
     try {
-      setIsLoading(true);
       const data = await scriptsApi.list();
       setScripts(data);
+      setIsLoading(false);
     } catch (error) {
       console.error('Failed to load scripts:', error);
       notifications.show({
@@ -38,10 +34,19 @@ export function ScriptList() {
         message: 'Failed to load scripts',
         color: 'red',
       });
-    } finally {
-      setIsLoading(false);
     }
   };
+
+  useEffect(() => {
+    // Initial load
+    loadScripts();
+
+    // Set up polling every 5 seconds
+    const interval = setInterval(loadScripts, 5000);
+
+    // Cleanup interval on unmount
+    return () => clearInterval(interval);
+  }, []);
 
   const filteredScripts = scripts.filter(script => {
     const searchLower = searchQuery.toLowerCase();

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Card, Select, Text, Group, Badge, Box, Code, Stack, Title, LoadingOverlay, Button } from '@mantine/core';
+import { Card, Select, Text, Group, Badge, Box, Code, Stack, Title, Button, Container, Combobox, InputBase, useCombobox } from '@mantine/core';
 import { useApi } from '../hooks/useApi';
 import { Script, Execution } from '../types';
 import { useSearchParams } from 'react-router-dom';
@@ -8,6 +8,7 @@ import {
   IconX,
   IconClock,
   IconLoader2,
+  IconFilter,
 } from '@tabler/icons-react';
 import { ExecutionStatus } from '../types';
 
@@ -20,12 +21,55 @@ export function ExecutionLogsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [scripts, setScripts] = useState<Script[]>([]);
   const [executions, setExecutions] = useState<ExtendedExecution[]>([]);
-  const [selectedScript, setSelectedScript] = useState<string | null>(searchParams.get('script'));
-  const [selectedStatus, setSelectedStatus] = useState<string | null>(searchParams.get('status'));
-  const [isLoading, setIsLoading] = useState(true);
-  const [selectedLogs, setSelectedLogs] = useState<string | null>(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedExecution, setSelectedExecution] = useState<ExtendedExecution | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [logContent, setLogContent] = useState<string>('');
+  const [scriptSearch, setScriptSearch] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
+
+  const selectedScript = searchParams.get('script') || '';
+  const selectedStatus = searchParams.get('status') || '';
+
+  const combobox = useCombobox({
+    onDropdownClose: () => combobox.resetSelectedOption(),
+  });
+
+  const filteredScripts = scripts
+    .filter(script => 
+      script.name.toLowerCase().includes(scriptSearch.toLowerCase())
+    )
+    .map(script => ({
+      value: script.name,
+      label: script.name,
+    }));
+
+  const statusOptions = [
+    { 
+      value: '', 
+      label: 'All Statuses',
+      leftSection: <IconFilter size={16} style={{ opacity: 0.5 }} />
+    },
+    { 
+      value: ExecutionStatus.SUCCESS, 
+      label: 'Success',
+      leftSection: <IconCheck size={16} color="var(--mantine-color-green-filled)" />
+    },
+    { 
+      value: ExecutionStatus.RUNNING, 
+      label: 'Running',
+      leftSection: <IconLoader2 size={16} color="var(--mantine-color-blue-filled)" className="rotating" />
+    },
+    { 
+      value: ExecutionStatus.PENDING, 
+      label: 'Pending',
+      leftSection: <IconClock size={16} color="var(--mantine-color-yellow-filled)" />
+    },
+    { 
+      value: ExecutionStatus.FAILURE, 
+      label: 'Failed',
+      leftSection: <IconX size={16} color="var(--mantine-color-red-filled)" />
+    }
+  ];
 
   useEffect(() => {
     const loadData = async () => {
@@ -71,60 +115,77 @@ export function ExecutionLogsPage() {
   }, [selectedScript, selectedStatus]);
 
   const handleScriptChange = (value: string | null) => {
-    setSelectedScript(value);
+    const newParams = new URLSearchParams(searchParams);
     if (value) {
-      setSearchParams({ script: value });
+      newParams.set('script', value);
     } else {
-      setSearchParams({});
+      newParams.delete('script');
     }
+    setSearchParams(newParams);
+    setScriptSearch(value || '');
   };
 
   const handleStatusChange = (value: string | null) => {
-    setSelectedStatus(value);
+    const newParams = new URLSearchParams(searchParams);
     if (value) {
-      setSearchParams({ status: value });
+      newParams.set('status', value);
     } else {
-      setSearchParams({});
+      newParams.delete('status');
     }
+    setSearchParams(newParams);
   };
 
   const closeLogModal = () => {
     setIsModalOpen(false);
     setSelectedExecution(null);
-    setSelectedLogs(null);
+    setLogContent('');
   };
 
   return (
-    <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '20px', position: 'relative', minHeight: '200px' }}>
-      <LoadingOverlay visible={isLoading} />
-      <Stack gap="md">
-        <Title order={2}>Execution Logs</Title>
-        
+    <Container size="xl">
+      <Stack gap="lg">
+        <Title>Execution Logs</Title>
+
         <Group>
-          <Select
-            label="Filter by Script"
-            placeholder="All Scripts"
-            data={[
-              { value: '', label: 'All Scripts' },
-              ...scripts.map(script => ({
-                value: script.name,
-                label: script.name
-              }))
-            ]}
-            value={selectedScript}
-            onChange={handleScriptChange}
-            style={{ minWidth: '200px' }}
-          />
+          <Combobox
+            store={combobox}
+            onOptionSubmit={(value) => {
+              handleScriptChange(value);
+              combobox.closeDropdown();
+            }}
+          >
+            <Combobox.Target>
+              <InputBase
+                label="Filter by Script"
+                placeholder="Search or select script"
+                value={scriptSearch}
+                onChange={(event) => {
+                  setScriptSearch(event.currentTarget.value);
+                  combobox.openDropdown();
+                }}
+                onClick={() => combobox.openDropdown()}
+                rightSection={<Combobox.Chevron />}
+                rightSectionPointerEvents="none"
+                style={{ minWidth: '300px' }}
+              />
+            </Combobox.Target>
+
+            <Combobox.Dropdown>
+              <Combobox.Options>
+                <Combobox.Option value="">All Scripts</Combobox.Option>
+                {filteredScripts.map((script) => (
+                  <Combobox.Option key={script.value} value={script.value}>
+                    {script.label}
+                  </Combobox.Option>
+                ))}
+              </Combobox.Options>
+            </Combobox.Dropdown>
+          </Combobox>
+
           <Select
             label="Filter by Status"
             placeholder="All Statuses"
-            data={[
-              { value: '', label: 'All Statuses' },
-              { value: ExecutionStatus.SUCCESS, label: 'Success' },
-              { value: ExecutionStatus.RUNNING, label: 'Running' },
-              { value: ExecutionStatus.PENDING, label: 'Pending' },
-              { value: ExecutionStatus.FAILURE, label: 'Failed' }
-            ]}
+            data={statusOptions}
             value={selectedStatus}
             onChange={handleStatusChange}
             style={{ minWidth: '200px' }}
@@ -145,7 +206,7 @@ export function ExecutionLogsPage() {
               withBorder 
               style={{ cursor: 'pointer' }}
               onClick={() => {
-                setSelectedLogs(execution.log_output || '');
+                setLogContent(execution.log_output || '');
                 setSelectedExecution(execution);
                 setIsModalOpen(true);
               }}
@@ -253,7 +314,7 @@ export function ExecutionLogsPage() {
                   border: '1px solid #2C2E33',
                   borderRadius: '4px'
                 }}>
-                  {selectedLogs || 'No logs available'}
+                  {logContent || 'No logs available'}
                 </Code>
               </Box>
 
@@ -268,6 +329,6 @@ export function ExecutionLogsPage() {
           </>
         )}
       </Stack>
-    </div>
+    </Container>
   );
 } 
