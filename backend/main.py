@@ -4,9 +4,10 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 from .api import routes
 from .config import settings
@@ -66,14 +67,22 @@ app.include_router(routes.router, prefix="/api")
 
 # Mount static files for frontend
 static_dir = Path("static")
-if static_dir.exists():
-    app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
-# Serve frontend static files in production
-if not settings.debug:
-    static_dir = Path(__file__).parent.parent / "frontend" / "dist"
-    if static_dir.exists():
-        app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="static")
+# Serve frontend static files
+@app.get("/{full_path:path}")
+async def serve_frontend(request: Request, full_path: str):
+    """Serve frontend files and handle client-side routing."""
+    # If path starts with /api, let it be handled by API routes
+    if full_path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="Not found")
+        
+    # Check if the path points to a static file
+    static_file = static_dir / full_path
+    if static_file.is_file():
+        return FileResponse(static_file)
+        
+    # For all other paths, serve the index.html for client-side routing
+    return FileResponse(static_dir / "index.html")
 
 @app.on_event("startup")
 async def startup_event():

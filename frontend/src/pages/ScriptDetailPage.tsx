@@ -20,6 +20,9 @@ import {
   IconPlayerPlay, 
   IconLoader2,
   IconTrash,
+  IconCheck,
+  IconX,
+  IconClock,
 } from '@tabler/icons-react';
 import { CodeEditor } from '../components/CodeEditor';
 import { TagInput } from '../components/TagInput';
@@ -953,6 +956,17 @@ export function ScriptDetailPage() {
                           }
                           variant="filled"
                           size="sm"
+                          leftSection={
+                            execution.status === ExecutionStatus.SUCCESS ? (
+                              <IconCheck size={12} />
+                            ) : execution.status === ExecutionStatus.RUNNING ? (
+                              <IconLoader2 size={12} className="rotating" />
+                            ) : execution.status === ExecutionStatus.PENDING ? (
+                              <IconClock size={12} />
+                            ) : (
+                              <IconX size={12} />
+                            )
+                          }
                         >
                           {execution.status}
                         </Badge>
