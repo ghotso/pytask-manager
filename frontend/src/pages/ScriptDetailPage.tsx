@@ -12,6 +12,8 @@ import {
   Badge,
   Switch,
   Table,
+  Modal,
+  Paper,
 } from '@mantine/core';
 import { useParams, useNavigate } from 'react-router-dom';
 import { notifications } from '@mantine/notifications';
@@ -39,7 +41,6 @@ export function ScriptDetailPage() {
   const scriptId = Number(id);
   const { script, isLoading, error, mutate } = useScript(scriptId);
   const [isSaving, setIsSaving] = useState(false);
-  const [isRunning, setIsRunning] = useState(false);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [content, setContent] = useState('');
@@ -48,9 +49,7 @@ export function ScriptDetailPage() {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [executions, setExecutions] = useState<Execution[]>([]);
   const [lastError, setLastError] = useState<string | null>(null);
-  const [isExecutionModalOpen, setIsExecutionModalOpen] = useState(false);
   const [executionOutput, setExecutionOutput] = useState<string[]>([]);
-  const [ws, setWs] = useState<WebSocket | null>(null);
   const [selectedExecution, setSelectedExecution] = useState<Execution | null>(null);
   const [isLogModalOpen, setIsLogModalOpen] = useState(false);
   const [logContent, setLogContent] = useState<string>('');
@@ -59,6 +58,8 @@ export function ScriptDetailPage() {
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const navigate = useNavigate();
+  const [showExecutionModal, setShowExecutionModal] = useState(false);
+  const [isExecuting, setIsExecuting] = useState(false);
 
   useEffect(() => {
     if (script) {
@@ -263,64 +264,48 @@ export function ScriptDetailPage() {
   }, [scriptId]);
 
   const handleRun = async () => {
-    setIsRunning(true);
+    if (!script?.id) return;
+
+    setIsExecuting(true);
     setExecutionOutput([]);
-    setIsExecutionModalOpen(true);
+    setShowExecutionModal(true);
 
-    try {
-      // Create WebSocket connection using the config
-      const wsUrl = `${WS_BASE_URL}/api/scripts/${scriptId}/ws`;
-      console.log('Connecting to WebSocket:', wsUrl);
-      const socket = new WebSocket(wsUrl);
-      setWs(socket);
+    const ws = new WebSocket(`${WS_BASE_URL}/api/scripts/${script.id}/ws`);
 
-      socket.onopen = () => {
-        console.log('WebSocket connected');
-      };
+    ws.onopen = () => {
+      console.log('WebSocket connected');
+    };
 
-      socket.onmessage = (event) => {
-        console.log('Received WebSocket message:', event.data);
-        // Force immediate state update and re-render
-        setExecutionOutput(prev => {
-          const newOutput = [...prev, event.data];
-          // Force scroll to bottom on next render
-          setTimeout(() => {
-            const outputElement = document.querySelector('.execution-output');
-            if (outputElement) {
-              outputElement.scrollTop = outputElement.scrollHeight;
-            }
-          }, 0);
-          return newOutput;
-        });
-      };
+    ws.onmessage = (event) => {
+      console.log('Received message:', event.data);
+      setExecutionOutput(prev => [...prev, event.data]);
+      // Force scroll to bottom
+      const outputElement = document.querySelector('.execution-output');
+      if (outputElement) {
+        setTimeout(() => {
+          outputElement.scrollTop = outputElement.scrollHeight;
+        }, 0);
+      }
+    };
 
-      socket.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        handleApiError(error, 'WebSocket connection');
-        setIsRunning(false);
-      };
+    ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+      handleApiError(error, 'execute script');
+      setIsExecuting(false);
+    };
 
-      socket.onclose = async () => {
-        console.log('WebSocket closed');
-        setIsRunning(false);
-        // Wait a short delay to ensure the backend has saved the execution
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        await loadExecutions(); // Refresh execution history
-      };
-
-    } catch (err) {
-      handleApiError(err, 'executing script');
-      setIsRunning(false);
-    }
+    ws.onclose = () => {
+      console.log('WebSocket closed');
+      setIsExecuting(false);
+      loadExecutions();
+    };
   };
 
   const closeExecutionModal = () => {
-    if (ws) {
-      ws.close();
+    if (!isExecuting) {
+      setShowExecutionModal(false);
+      setExecutionOutput([]);
     }
-    setIsExecutionModalOpen(false);
-    setExecutionOutput([]);
-    setWs(null);
   };
 
   const handleViewLogs = async (execution: Execution) => {
@@ -459,193 +444,64 @@ export function ScriptDetailPage() {
     }
   }, [executionOutput]);
 
+  const ExecutionModal = () => (
+    <Modal
+      opened={showExecutionModal}
+      onClose={closeExecutionModal}
+      title="Script Execution"
+      size="xl"
+    >
+      <Stack>
+        <Paper
+          className="execution-output"
+          withBorder
+          p="md"
+          style={{
+            height: '500px',
+            overflowY: 'auto',
+            backgroundColor: '#1A1B1E',
+            fontFamily: 'monospace',
+          }}
+        >
+          {executionOutput.length > 0 ? (
+            executionOutput.map((line, index) => (
+              <Text
+                key={index}
+                style={{
+                  whiteSpace: 'pre-wrap',
+                  color: '#d4d4d4',
+                  padding: '2px 0',
+                }}
+              >
+                {line}
+              </Text>
+            ))
+          ) : (
+            <Text c="dimmed" ta="center">
+              {isExecuting ? 'Executing script...' : 'Waiting for output...'}
+            </Text>
+          )}
+        </Paper>
+
+        <Group justify="flex-end">
+          <Button
+            variant="light"
+            color="gray"
+            onClick={closeExecutionModal}
+            disabled={isExecuting}
+          >
+            Close
+          </Button>
+        </Group>
+      </Stack>
+    </Modal>
+  );
+
   if (isLoading) return <LoadingOverlay visible />;
   if (error) return <Text c="red">Error loading script: {error.message}</Text>;
 
   return (
     <Box p="xl" pos="relative">
-      {isExecutionModalOpen && (
-        <>
-          <Box
-            style={{
-              position: 'fixed',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              backgroundColor: 'rgba(0, 0, 0, 0.85)',
-              backdropFilter: 'blur(3px)',
-              zIndex: 999
-            }}
-            onClick={closeExecutionModal}
-          />
-          <Box
-            style={{
-              position: 'fixed',
-              top: '50%',
-              left: '50%',
-              transform: 'translate(-50%, -50%)',
-              width: '800px',
-              maxWidth: '90vw',
-              maxHeight: '90vh',
-              backgroundColor: '#1A1B1E',
-              border: '1px solid #2C2E33',
-              borderRadius: '8px',
-              zIndex: 1000,
-              display: 'flex',
-              flexDirection: 'column'
-            }}
-          >
-            <Box p="md" style={{ borderBottom: '1px solid #2C2E33', backgroundColor: '#141517' }}>
-              <Group>
-                <Text size="lg" fw={500}>Script Execution</Text>
-                {isRunning && (
-                  <Badge
-                    color="blue"
-                    variant="filled"
-                    size="sm"
-                    leftSection={
-                      <IconLoader2 
-                        size={14}
-                        className="rotating"
-                        style={{ marginRight: '4px' }}
-                      />
-                    }
-                  >
-                    Running
-                  </Badge>
-                )}
-              </Group>
-            </Box>
-
-            <Box p="md" style={{ flex: 1, overflowY: 'auto', maxHeight: 'calc(90vh - 140px)' }}>
-              <Code block className="execution-output" style={{ 
-                whiteSpace: 'pre-wrap', 
-                backgroundColor: '#1e1e1e',
-                color: '#d4d4d4',
-                height: '100%',
-                overflowY: 'auto',
-                fontFamily: 'monospace',
-                fontSize: '14px',
-                lineHeight: '1.4'
-              }}>
-                {executionOutput.length > 0 ? (
-                  executionOutput.map((line, index) => (
-                    <div key={`${index}-${line}`} style={{ 
-                      padding: '2px 0',
-                      borderBottom: '1px solid rgba(255,255,255,0.05)'
-                    }}>
-                      {line}
-                    </div>
-                  ))
-                ) : (
-                  <Text c="dimmed" ta="center">
-                    Click Execute to run the script
-                  </Text>
-                )}
-              </Code>
-            </Box>
-
-            <Box p="md" style={{ borderTop: '1px solid #2C2E33', backgroundColor: '#141517' }}>
-              <Group justify="flex-end">
-                <Button 
-                  onClick={closeExecutionModal}
-                  variant="filled"
-                  color="gray"
-                  disabled={isRunning}
-                >
-                  Close
-                </Button>
-              </Group>
-            </Box>
-          </Box>
-        </>
-      )}
-
-      {isLogModalOpen && (
-        <>
-          <Box
-            style={{
-              position: 'fixed',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              backgroundColor: 'rgba(0, 0, 0, 0.85)',
-              backdropFilter: 'blur(3px)',
-              zIndex: 999
-            }}
-            onClick={closeLogModal}
-          />
-          <Box
-            style={{
-              position: 'fixed',
-              top: '50%',
-              left: '50%',
-              transform: 'translate(-50%, -50%)',
-              width: '800px',
-              maxWidth: '90vw',
-              maxHeight: '90vh',
-              backgroundColor: '#1A1B1E',
-              border: '1px solid #2C2E33',
-              borderRadius: '8px',
-              zIndex: 1000,
-              display: 'flex',
-              flexDirection: 'column'
-            }}
-          >
-            <Box p="md" style={{ borderBottom: '1px solid #2C2E33', backgroundColor: '#141517' }}>
-              <Group>
-                <Text size="lg" fw={500}>Execution Logs</Text>
-                {selectedExecution && (
-                  <>
-                    <Badge
-                      color={
-                        selectedExecution.status === ExecutionStatus.SUCCESS ? 'green' : 
-                        selectedExecution.status === ExecutionStatus.PENDING ? 'yellow' : 
-                        selectedExecution.status === ExecutionStatus.RUNNING ? 'blue' : 'red'
-                      }
-                    >
-                      {selectedExecution.status.toUpperCase()}
-                    </Badge>
-                    <Text size="sm" c="dimmed">
-                      {formatDate(selectedExecution.started_at)}
-                    </Text>
-                  </>
-                )}
-              </Group>
-            </Box>
-
-            <Box p="md" style={{ flex: 1, overflowY: 'auto', maxHeight: 'calc(90vh - 140px)' }}>
-              {selectedExecution?.error_message && (
-                <Text c="red" size="sm" mb="md">
-                  Error: {selectedExecution.error_message}
-                </Text>
-              )}
-
-              <Code block style={{ 
-                whiteSpace: 'pre-wrap', 
-                fontFamily: 'monospace',
-                padding: '1rem',
-                backgroundColor: '#141517',
-                border: '1px solid #2C2E33',
-                borderRadius: '4px'
-              }}>
-                {logContent || 'No logs available'}
-              </Code>
-            </Box>
-
-            <Box p="md" style={{ borderTop: '1px solid #2C2E33', backgroundColor: '#141517' }}>
-              <Group justify="flex-end">
-                <Button onClick={closeLogModal} variant="filled" color="gray">
-                  Close
-                </Button>
-              </Group>
-            </Box>
-          </Box>
-        </>
-      )}
-
       <Stack gap="xl">
         <Group justify="space-between" align="flex-start" w="100%">
           <Box style={{ flex: 1, paddingRight: '24px' }}>
@@ -731,7 +587,7 @@ export function ScriptDetailPage() {
             <Button
               leftSection={<IconPlayerPlay size={18} />}
               onClick={handleRun}
-              loading={isRunning}
+              loading={isExecuting}
               color="green"
             >
               Run Script
@@ -954,141 +810,137 @@ export function ScriptDetailPage() {
               <Group justify="space-between" mb="md">
                 <Text fw={500} size="lg">Execution History</Text>
                 <Button
-                  variant="light"
-                  onClick={() => navigate(`/executions?script=${encodeURIComponent(name)}`)}
+                  onClick={handleRun}
+                  disabled={isExecuting}
+                  leftSection={isExecuting ? <IconLoader2 className="rotating" size={16} /> : <IconPlayerPlay size={16} />}
                 >
-                  View All Executions
+                  {isExecuting ? 'Running...' : 'Run'}
                 </Button>
               </Group>
-              <div style={{ 
-                display: 'grid',
-                gridTemplateColumns: 'repeat(2, 1fr)',
-                gap: '12px'
-              }}>
-                {executions.slice(0, 8).map((execution) => (
-                  <Card 
-                    key={execution.id}
-                    withBorder
-                    padding="sm"
-                    style={{
-                      backgroundColor: '#141517',
-                      border: '1px solid #2C2E33'
-                    }}
-                  >
-                    <Group justify="space-between" mb={4}>
-                      <Group gap="xs">
-                        {execution.status === ExecutionStatus.SUCCESS ? (
-                          <IconCheck size={18} color="var(--mantine-color-green-filled)" />
-                        ) : execution.status === ExecutionStatus.RUNNING ? (
-                          <IconLoader2 size={18} className="rotating" color="var(--mantine-color-blue-filled)" />
-                        ) : execution.status === ExecutionStatus.PENDING ? (
-                          <IconClock size={18} color="var(--mantine-color-yellow-filled)" />
-                        ) : (
-                          <IconX size={18} color="var(--mantine-color-red-filled)" />
-                        )}
-                        <Text size="sm" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
-                          {formatDate(execution.started_at)}
-                        </Text>
-                      </Group>
-                      <Button 
-                        variant="subtle" 
-                        size="xs"
-                        onClick={() => handleViewLogs(execution)}
-                        style={{ minWidth: 'unset', padding: '0 8px' }}
-                      >
-                        View Logs
-                      </Button>
-                    </Group>
-                    {execution.error_message && (
-                      <Text size="sm" c="red" mt={4} lineClamp={1}>
-                        Error: {execution.error_message}
-                      </Text>
-                    )}
-                  </Card>
-                ))}
-                {executions.length === 0 && (
-                  <Text c="dimmed" ta="center" style={{ gridColumn: '1 / -1', padding: '2rem' }}>
-                    No executions yet
-                  </Text>
-                )}
-              </div>
+
+              {executions.length > 0 ? (
+                <Table>
+                  <Table.Thead>
+                    <Table.Tr>
+                      <Table.Th>Status</Table.Th>
+                      <Table.Th>Started</Table.Th>
+                      <Table.Th>Completed</Table.Th>
+                      <Table.Th>Actions</Table.Th>
+                    </Table.Tr>
+                  </Table.Thead>
+                  <Table.Tbody>
+                    {executions.map((execution) => (
+                      <Table.Tr key={execution.id}>
+                        <Table.Td>
+                          <Badge
+                            color={
+                              execution.status === ExecutionStatus.SUCCESS
+                                ? 'green'
+                                : execution.status === ExecutionStatus.FAILURE
+                                ? 'red'
+                                : execution.status === ExecutionStatus.RUNNING
+                                ? 'blue'
+                                : 'gray'
+                            }
+                            leftSection={
+                              execution.status === ExecutionStatus.SUCCESS ? (
+                                <IconCheck size={14} />
+                              ) : execution.status === ExecutionStatus.FAILURE ? (
+                                <IconX size={14} />
+                              ) : execution.status === ExecutionStatus.RUNNING ? (
+                                <IconLoader2 size={14} className="rotating" />
+                              ) : (
+                                <IconClock size={14} />
+                              )
+                            }
+                          >
+                            {execution.status}
+                          </Badge>
+                        </Table.Td>
+                        <Table.Td>{formatDate(execution.started_at)}</Table.Td>
+                        <Table.Td>
+                          {execution.completed_at
+                            ? formatDate(execution.completed_at)
+                            : '-'}
+                        </Table.Td>
+                        <Table.Td>
+                          <Button
+                            variant="light"
+                            size="xs"
+                            onClick={() => handleViewLogs(execution)}
+                          >
+                            View Logs
+                          </Button>
+                        </Table.Td>
+                      </Table.Tr>
+                    ))}
+                  </Table.Tbody>
+                </Table>
+              ) : (
+                <Text c="dimmed" ta="center">No executions yet</Text>
+              )}
             </Card>
           </Stack>
         </div>
       </Stack>
 
-      {isDeleteModalOpen && (
-        <>
-          <Box
+      {/* Replace the inline modal with the ExecutionModal component */}
+      <ExecutionModal />
+
+      {/* Log Modal */}
+      <Modal
+        opened={isLogModalOpen}
+        onClose={closeLogModal}
+        title={`Execution Logs - ${selectedExecution?.started_at ? formatDate(selectedExecution.started_at) : ''}`}
+        size="xl"
+      >
+        <Paper
+          withBorder
+          p="md"
+          style={{
+            height: '500px',
+            overflowY: 'auto',
+            backgroundColor: '#1A1B1E',
+            fontFamily: 'monospace',
+          }}
+        >
+          <Text
             style={{
-              position: 'fixed',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              backgroundColor: 'rgba(0, 0, 0, 0.85)',
-              backdropFilter: 'blur(3px)',
-              zIndex: 999
-            }}
-            onClick={() => !isDeleting && setIsDeleteModalOpen(false)}
-          />
-          <Box
-            style={{
-              position: 'fixed',
-              top: '50%',
-              left: '50%',
-              transform: 'translate(-50%, -50%)',
-              width: '400px',
-              maxWidth: '90vw',
-              backgroundColor: '#1A1B1E',
-              border: '1px solid #2C2E33',
-              borderRadius: '8px',
-              zIndex: 1000
+              whiteSpace: 'pre-wrap',
+              color: '#d4d4d4',
             }}
           >
-            <Box p="md" style={{ borderBottom: '1px solid #2C2E33', backgroundColor: '#141517' }}>
-              <Text size="lg" fw={500}>Delete Script</Text>
-            </Box>
-            
-            <Stack p="md">
-              <Text>Are you sure you want to delete this script? This action cannot be undone.</Text>
-              
-              <Group justify="flex-end" mt="md">
-                <Button 
-                  variant="default" 
-                  onClick={() => !isDeleting && setIsDeleteModalOpen(false)}
-                  disabled={isDeleting}
-                >
-                  Cancel
-                </Button>
-                <Button 
-                  color="red" 
-                  onClick={handleDelete}
-                  loading={isDeleting}
-                >
-                  Delete
-                </Button>
-              </Group>
-            </Stack>
-          </Box>
-        </>
-      )}
+            {logContent || 'No logs available'}
+          </Text>
+        </Paper>
+      </Modal>
 
-      <style>
-        {`
-          @keyframes rotate {
-            from {
-              transform: rotate(0deg);
-            }
-            to {
-              transform: rotate(360deg);
-            }
-          }
-          .rotating {
-            animation: rotate 1s linear infinite;
-          }
-        `}
-      </style>
+      {/* Delete Confirmation Modal */}
+      <Modal
+        opened={isDeleteModalOpen}
+        onClose={() => setIsDeleteModalOpen(false)}
+        title="Delete Script"
+      >
+        <Stack>
+          <Text>Are you sure you want to delete this script? This action cannot be undone.</Text>
+          <Group justify="flex-end">
+            <Button
+              variant="light"
+              onClick={() => setIsDeleteModalOpen(false)}
+              disabled={isDeleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              color="red"
+              onClick={handleDelete}
+              loading={isDeleting}
+            >
+              Delete
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
     </Box>
   );
 } 

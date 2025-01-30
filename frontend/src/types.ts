@@ -22,9 +22,10 @@ export interface Schedule {
 export interface Execution {
   id: number;
   script_id: number;
+  schedule_id?: number;
   status: ExecutionStatus;
   started_at: string;
-  ended_at?: string;
+  completed_at?: string;
   error_message?: string;
   log_output?: string;
 }
