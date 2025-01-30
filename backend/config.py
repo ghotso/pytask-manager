@@ -1,5 +1,6 @@
 """Application configuration."""
 import os
+import logging
 from pathlib import Path
 from typing import Optional
 
@@ -36,9 +37,43 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     log_file: Optional[Path] = logs_dir / "app.log"
+    error_log_file: Optional[Path] = logs_dir / "error.log"
     
     # Script execution settings
     max_execution_time: int = 300  # 5 minutes in seconds
+    
+    def configure_logging(self) -> None:
+        """Configure logging for the application."""
+        handlers = []
+        
+        # Console handler
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(logging.Formatter(self.log_format))
+        handlers.append(console_handler)
+        
+        # File handlers
+        if self.log_file:
+            os.makedirs(self.logs_dir, exist_ok=True)
+            file_handler = logging.FileHandler(self.log_file)
+            file_handler.setFormatter(logging.Formatter(self.log_format))
+            handlers.append(file_handler)
+            
+        if self.error_log_file:
+            error_handler = logging.FileHandler(self.error_log_file)
+            error_handler.setFormatter(logging.Formatter(self.log_format))
+            error_handler.setLevel(logging.ERROR)
+            handlers.append(error_handler)
+        
+        # Configure root logger
+        logging.basicConfig(
+            level=getattr(logging, self.log_level.upper()),
+            handlers=handlers,
+            force=True
+        )
+        
+        # Set SQLAlchemy logging to WARNING unless in debug mode
+        if not self.debug:
+            logging.getLogger('sqlalchemy.engine').setLevel(logging.WARNING)
     
     class Config:
         """Pydantic config."""

@@ -40,6 +40,10 @@ RUN mkdir -p /app/data /app/scripts /app/logs && \
     chmod -R 755 /app && \
     chmod 777 /app/data /app/scripts /app/logs
 
+# Configure logging
+RUN ln -sf /dev/stdout /app/logs/app.log && \
+    ln -sf /dev/stderr /app/logs/error.log
+
 # Copy backend requirements and install dependencies
 COPY backend/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
@@ -58,6 +62,7 @@ ENV PYTASK_DATABASE_URL=sqlite+aiosqlite:///data/data.db
 ENV PYTASK_SCRIPTS_DIR=/app/scripts
 ENV PYTASK_LOGS_DIR=/app/logs
 ENV PYTASK_DEBUG=true
+ENV PYTASK_LOG_LEVEL=INFO
 
 # Expose port
 EXPOSE 8000
@@ -70,7 +75,12 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
 RUN chown -R pytask:users /app && \
     chmod -R 755 /app && \
     chmod 777 /app/data /app/scripts /app/logs && \
+    touch /app/data/data.db && \
+    chown pytask:users /app/data/data.db && \
+    chmod 666 /app/data/data.db && \
+    ls -la /app/data && \
     ls -la /app/scripts && \
+    ls -la /app/logs && \
     id pytask
 
 # Switch to non-root user

@@ -8,18 +8,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from .api.routes import router
+from .api import routes
 from .config import settings
 from .database import create_tables, get_session_context
 from .logging_config import configure_logging
 from .scheduler import scheduler_service
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-
+settings.configure_logging()
 logger = logging.getLogger(__name__)
 
 @asynccontextmanager
@@ -66,7 +62,7 @@ app.add_middleware(
 )
 
 # Include API routes first
-app.include_router(router, prefix="/api")
+app.include_router(routes.router, prefix="/api")
 
 # Mount static files for frontend
 static_dir = Path("static")
@@ -77,4 +73,20 @@ if static_dir.exists():
 if not settings.debug:
     static_dir = Path(__file__).parent.parent / "frontend" / "dist"
     if static_dir.exists():
-        app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="static") 
+        app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="static")
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize the application on startup."""
+    logger.info("Starting PyTask Manager")
+    try:
+        await create_tables()
+        logger.info("Database tables created successfully")
+    except Exception as e:
+        logger.error("Failed to create database tables: %s", str(e))
+        raise
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Clean up resources on shutdown."""
+    logger.info("Shutting down PyTask Manager") 
