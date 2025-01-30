@@ -278,13 +278,13 @@ export function ScriptDetailPage() {
 
     ws.onmessage = (event) => {
       console.log('Received message:', event.data);
-      setExecutionOutput(prev => [...prev, event.data]);
-      // Force scroll to bottom
+      // Remove ERROR: prefix if present and add to output
+      const logLine = event.data.replace(/^ERROR: /, '');
+      setExecutionOutput(prev => [...prev, logLine]);
+      // Force scroll to bottom immediately
       const outputElement = document.querySelector('.execution-output');
       if (outputElement) {
-        setTimeout(() => {
-          outputElement.scrollTop = outputElement.scrollHeight;
-        }, 0);
+        outputElement.scrollTop = outputElement.scrollHeight;
       }
     };
 
@@ -325,7 +325,9 @@ export function ScriptDetailPage() {
         setLogContent('No logs available');
       } else {
         console.log('Setting log content, length:', logs.length);
-        setLogContent(logs);
+        // Remove ERROR: prefix from each line
+        const cleanedLogs = logs.split('\n').map(line => line.replace(/^ERROR: /, '')).join('\n');
+        setLogContent(cleanedLogs);
       }
     } catch (err) {
       console.error('Error in handleViewLogs:', err);
@@ -443,59 +445,6 @@ export function ScriptDetailPage() {
       outputElement.scrollTop = outputElement.scrollHeight;
     }
   }, [executionOutput]);
-
-  const ExecutionModal = () => (
-    <Modal
-      opened={showExecutionModal}
-      onClose={closeExecutionModal}
-      title="Script Execution"
-      size="xl"
-    >
-      <Stack>
-        <Paper
-          className="execution-output"
-          withBorder
-          p="md"
-          style={{
-            height: '500px',
-            overflowY: 'auto',
-            backgroundColor: '#1A1B1E',
-            fontFamily: 'monospace',
-          }}
-        >
-          {executionOutput.length > 0 ? (
-            executionOutput.map((line, index) => (
-              <Text
-                key={index}
-                style={{
-                  whiteSpace: 'pre-wrap',
-                  color: '#d4d4d4',
-                  padding: '2px 0',
-                }}
-              >
-                {line}
-              </Text>
-            ))
-          ) : (
-            <Text c="dimmed" ta="center">
-              {isExecuting ? 'Executing script...' : 'Waiting for output...'}
-            </Text>
-          )}
-        </Paper>
-
-        <Group justify="flex-end">
-          <Button
-            variant="light"
-            color="gray"
-            onClick={closeExecutionModal}
-            disabled={isExecuting}
-          >
-            Close
-          </Button>
-        </Group>
-      </Stack>
-    </Modal>
-  );
 
   if (isLoading) return <LoadingOverlay visible />;
   if (error) return <Text c="red">Error loading script: {error.message}</Text>;
@@ -809,13 +758,6 @@ export function ScriptDetailPage() {
             <Card withBorder>
               <Group justify="space-between" mb="md">
                 <Text fw={500} size="lg">Execution History</Text>
-                <Button
-                  onClick={handleRun}
-                  disabled={isExecuting}
-                  leftSection={isExecuting ? <IconLoader2 className="rotating" size={16} /> : <IconPlayerPlay size={16} />}
-                >
-                  {isExecuting ? 'Running...' : 'Run'}
-                </Button>
               </Group>
 
               {executions.length > 0 ? (
@@ -884,8 +826,57 @@ export function ScriptDetailPage() {
         </div>
       </Stack>
 
-      {/* Replace the inline modal with the ExecutionModal component */}
-      <ExecutionModal />
+      {/* Execution Modal */}
+      <Modal
+        opened={showExecutionModal}
+        onClose={closeExecutionModal}
+        title="Script Execution"
+        size="xl"
+      >
+        <Stack>
+          <Paper
+            className="execution-output"
+            withBorder
+            p="md"
+            style={{
+              height: '500px',
+              overflowY: 'auto',
+              backgroundColor: '#1A1B1E',
+              fontFamily: 'monospace',
+            }}
+          >
+            {executionOutput.length > 0 ? (
+              executionOutput.map((line, index) => (
+                <Text
+                  key={index}
+                  style={{
+                    whiteSpace: 'pre-wrap',
+                    color: '#d4d4d4',
+                    padding: '2px 0',
+                  }}
+                >
+                  {line}
+                </Text>
+              ))
+            ) : (
+              <Text c="dimmed" ta="center">
+                {isExecuting ? 'Executing script...' : 'Waiting for output...'}
+              </Text>
+            )}
+          </Paper>
+
+          <Group justify="flex-end">
+            <Button
+              variant="light"
+              color="gray"
+              onClick={closeExecutionModal}
+              disabled={isExecuting}
+            >
+              Close
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
 
       {/* Log Modal */}
       <Modal
