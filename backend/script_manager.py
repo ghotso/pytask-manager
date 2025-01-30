@@ -167,75 +167,126 @@ class ScriptManager:
             logger.debug(f"Pip output: {stdout.decode()}")
 
     async def _collect_stream(self, stream: asyncio.StreamReader) -> List[str]:
-        """Collect all lines from a stream."""
+        """Collect all lines from a stream with timeout per line."""
         lines = []
         while True:
             try:
-                line = await stream.readline()
+                # Read each line with a timeout
+                try:
+                    line = await asyncio.wait_for(stream.readline(), timeout=10)  # 10 seconds per line
+                except asyncio.TimeoutError:
+                    logger.warning("Timeout reading stream line")
+                    break
+                
                 if not line:
                     break
+                
                 text = line.decode().rstrip('\n')
                 logger.debug(f"Collected line: {text!r}")
                 lines.append(text + '\n')
+            
             except Exception as e:
                 logger.error(f"Error reading stream: {e}")
                 break
+            
         return lines
 
     async def execute(self, execution_id: int) -> AsyncGenerator[str, None]:
         """Execute the script and stream its output."""
         logger.info(f"Executing script {self.script_id}")
+        process = None
         
-        # Ensure script file exists
-        script_file = self.script_dir / "script.py"
-        if not script_file.exists():
-            logger.error(f"Script file not found: {script_file}")
-            raise FileNotFoundError(f"Script file not found: {script_file}")
-        
-        # Create process
-        cmd = [str(self.python_path), str(script_file)]
-        logger.debug(f"Running command: {' '.join(cmd)}")
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=str(self.script_dir)
-        )
-        
-        # Stream output
-        assert process.stdout is not None
-        assert process.stderr is not None
-
         try:
-            # Process stdout and stderr concurrently
-            stdout_task = asyncio.create_task(self._collect_stream(process.stdout))
-            stderr_task = asyncio.create_task(self._collect_stream(process.stderr))
+            # Ensure script file exists
+            script_file = self.script_dir / "script.py"
+            if not script_file.exists():
+                logger.error(f"Script file not found: {script_file}")
+                raise FileNotFoundError(f"Script file not found: {script_file}")
             
-            # Wait for both streams to complete
-            stdout_lines, stderr_lines = await asyncio.gather(stdout_task, stderr_task)
+            # Create process
+            cmd = [str(self.python_path), str(script_file)]
+            logger.debug(f"Running command: {' '.join(cmd)}")
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(self.script_dir)
+            )
             
-            # Yield stdout lines
-            for line in stdout_lines:
-                logger.debug(f"Yielding stdout line: {line!r}")
-                yield line
-            
-            # Yield stderr lines
-            for line in stderr_lines:
-                logger.debug(f"Yielding stderr line: {line!r}")
-                yield f"ERROR: {line}"
-            
-            # Wait for completion and check return code
-            await process.wait()
-            logger.debug(f"Process exited with return code {process.returncode}")
-            if process.returncode != 0:
-                error_msg = f"Error: Script exited with return code {process.returncode}\n"
-                logger.error(f"Script execution failed with return code {process.returncode}")
+            # Stream output with timeout
+            assert process.stdout is not None
+            assert process.stderr is not None
+
+            try:
+                # Process stdout and stderr concurrently with timeout
+                stdout_task = asyncio.create_task(self._collect_stream(process.stdout))
+                stderr_task = asyncio.create_task(self._collect_stream(process.stderr))
+                
+                # Wait for both streams to complete with timeout
+                try:
+                    stdout_lines, stderr_lines = await asyncio.wait_for(
+                        asyncio.gather(stdout_task, stderr_task),
+                        timeout=300  # 5 minutes timeout
+                    )
+                except asyncio.TimeoutError:
+                    logger.error("Script execution timed out after 5 minutes")
+                    if process.returncode is None:
+                        try:
+                            process.terminate()
+                            await asyncio.sleep(1)  # Give it a second to terminate
+                            if process.returncode is None:
+                                process.kill()  # Force kill if still running
+                        except Exception as e:
+                            logger.error(f"Error terminating process: {e}")
+                    raise RuntimeError("Script execution timed out after 5 minutes")
+                
+                # Yield stdout lines
+                for line in stdout_lines:
+                    logger.debug(f"Yielding stdout line: {line!r}")
+                    yield line
+                
+                # Yield stderr lines
+                for line in stderr_lines:
+                    logger.debug(f"Yielding stderr line: {line!r}")
+                    yield f"ERROR: {line}"
+                
+                # Wait for completion with timeout
+                try:
+                    await asyncio.wait_for(process.wait(), timeout=10)  # 10 seconds to finish up
+                except asyncio.TimeoutError:
+                    logger.error("Process wait timed out")
+                    if process.returncode is None:
+                        process.kill()
+                    raise RuntimeError("Process wait timed out")
+                
+                logger.debug(f"Process exited with return code {process.returncode}")
+                if process.returncode != 0:
+                    error_msg = f"Error: Script exited with return code {process.returncode}\n"
+                    logger.error(f"Script execution failed with return code {process.returncode}")
+                    yield error_msg
+
+            except Exception as e:
+                error_msg = f"Error: {str(e)}\n"
+                logger.exception("Error during script execution")
                 yield error_msg
+                raise  # Re-raise to ensure proper cleanup
 
         except Exception as e:
             error_msg = f"Error: {str(e)}\n"
             logger.exception("Error during script execution")
             yield error_msg
+            raise
+
+        finally:
+            # Ensure process is terminated
+            if process is not None and process.returncode is None:
+                try:
+                    process.terminate()
+                    await asyncio.sleep(1)  # Give it a second to terminate
+                    if process.returncode is None:
+                        process.kill()  # Force kill if still running
+                except Exception as e:
+                    logger.error(f"Error cleaning up process: {e}")
 
     def cleanup(self) -> None:
         """Clean up script environment."""

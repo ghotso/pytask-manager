@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Card, Select, Text, Group, Badge, Box, Code, Stack, Title, Button, Container, Combobox, InputBase, useCombobox, Modal } from '@mantine/core';
+import { Card, Select, Text, Group, Badge, Box, Code, Stack, Title, Button, Container, Combobox, InputBase, useCombobox } from '@mantine/core';
 import { useApi } from '../hooks/useApi';
 import { Script, Execution } from '../types';
 import { useSearchParams } from 'react-router-dom';
@@ -23,7 +23,6 @@ export function ExecutionLogsPage() {
   const [scripts, setScripts] = useState<Script[]>([]);
   const [executions, setExecutions] = useState<ExtendedExecution[]>([]);
   const [selectedExecution, setSelectedExecution] = useState<ExtendedExecution | null>(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
   const [logContent, setLogContent] = useState<string>('');
   const [scriptSearch, setScriptSearch] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -139,12 +138,6 @@ export function ExecutionLogsPage() {
     setSearchParams(newParams);
   };
 
-  const closeLogModal = () => {
-    setIsModalOpen(false);
-    setSelectedExecution(null);
-    setLogContent('');
-  };
-
   return (
     <Container size="xl">
       <Stack gap="lg">
@@ -214,7 +207,6 @@ export function ExecutionLogsPage() {
               onClick={() => {
                 setLogContent(execution.log_output || '');
                 setSelectedExecution(execution);
-                setIsModalOpen(true);
               }}
             >
               <Group justify="space-between" mb="xs">
@@ -252,13 +244,7 @@ export function ExecutionLogsPage() {
         </div>
 
         {selectedExecution && (
-          <Modal
-            opened={isModalOpen}
-            onClose={closeLogModal}
-            size="xl"
-            closeOnClickOutside={false}
-            closeOnEscape={false}
-          >
+          <>
             <Box
               style={{
                 position: 'fixed',
@@ -270,7 +256,7 @@ export function ExecutionLogsPage() {
                 backdropFilter: 'blur(3px)',
                 zIndex: 999
               }}
-              onClick={closeLogModal}
+              onClick={() => setSelectedExecution(null)}
             />
             <Box
               style={{
@@ -328,13 +314,13 @@ export function ExecutionLogsPage() {
 
               <Box p="md" style={{ borderTop: '1px solid #2C2E33', backgroundColor: '#141517' }}>
                 <Group justify="flex-end">
-                  <Button onClick={closeLogModal} variant="filled" color="gray">
+                  <Button onClick={() => setSelectedExecution(null)} variant="filled" color="gray">
                     Close
                   </Button>
                 </Group>
               </Box>
             </Box>
-          </Modal>
+          </>
         )}
       </Stack>
     </Container>

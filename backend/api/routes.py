@@ -494,9 +494,8 @@ async def execute_script(
         # Schedule execution
         background_tasks.add_task(
             _execute_script,
-            script_manager=script_manager,
-            execution_id=execution.id,
-            session=session,
+            script_id,
+            execution.id,
         )
         
         return ExecutionResponse(
@@ -845,54 +844,74 @@ async def _update_script_environment(script_id: int, content: str, dependencies:
     await manager.setup_environment(content, dependencies)
 
 
-async def _execute_script(
-    script_manager: ScriptManager,
-    execution_id: int,
-    session: AsyncSession,
-) -> None:
-    """Execute script and update execution record."""
+async def _execute_script(script_id: int, execution_id: int) -> None:
+    """Execute a script and update its execution record."""
+    logger.info(f"Executing script {script_id}")
+    manager = None
+    last_error = None
+    
     try:
-        # Get execution record
-        execution = await session.get(Execution, execution_id)
-        if not execution:
-            logger.error(f"Execution {execution_id} not found")
-            return
-
-        # Update status to running
-        execution.status = ExecutionStatus.RUNNING
-        await session.commit()
-
-        # Execute script and collect output
-        output = []
-        last_error = None
-        async for line in script_manager.execute(execution_id):
-            output.append(line)
-            # Track error messages, particularly the return code error
-            if line.startswith("Error: Script exited with return code"):
-                last_error = line
-
-        # Update execution record based on success/failure
-        execution.completed_at = datetime.now(timezone.utc)
-        execution.log_output = "".join(output)
-        
-        if last_error:
-            execution.status = ExecutionStatus.FAILURE
-            execution.error_message = last_error
-        else:
-            execution.status = ExecutionStatus.SUCCESS
+        async with get_session_context() as session:
+            # Get the script
+            script = await session.get(Script, script_id)
+            if not script:
+                raise ValueError(f"Script {script_id} not found")
             
-        await session.commit()
-
+            # Get the execution
+            execution = await session.get(Execution, execution_id)
+            if not execution:
+                raise ValueError(f"Execution {execution_id} not found")
+            
+            # Update execution status to RUNNING
+            execution.status = ExecutionStatus.RUNNING
+            await session.commit()
+            
+            # Create script manager
+            manager = ScriptManager(script_id)
+            
+            # Collect output
+            output_lines = []
+            try:
+                async for line in manager.execute(execution_id):
+                    output_lines.append(line)
+                    if line.startswith("Error: Script exited with return code"):
+                        last_error = line
+                    elif line.startswith("ERROR: "):
+                        last_error = line
+            except Exception as e:
+                last_error = f"Error: {str(e)}"
+                logger.exception("Error during script execution")
+                raise
+            
+            # Update execution record
+            execution.completed_at = datetime.now(timezone.utc)
+            execution.log_output = "".join(output_lines)
+            
+            if last_error:
+                execution.status = ExecutionStatus.FAILURE
+                execution.error_message = last_error
+            else:
+                execution.status = ExecutionStatus.SUCCESS
+            
+            await session.commit()
+            
     except Exception as e:
-        logger.error(f"Script execution failed: {str(e)}", exc_info=True)
-        
-        # Update execution record with error
-        execution.status = ExecutionStatus.FAILURE
-        execution.completed_at = datetime.now(timezone.utc)
-        execution.error_message = str(e)
-        execution.log_output = "".join(output) if output else ""
-        await session.commit()
-
+        logger.exception(f"Error executing script {script_id}")
+        try:
+            async with get_session_context() as session:
+                execution = await session.get(Execution, execution_id)
+                if execution:
+                    execution.completed_at = datetime.now(timezone.utc)
+                    execution.status = ExecutionStatus.FAILURE
+                    execution.error_message = str(e)
+                    await session.commit()
+        except Exception as commit_error:
+            logger.error(f"Error updating execution status: {commit_error}")
+    
     finally:
-        # Clean up environment
-        script_manager.cleanup()
+        # Always clean up the script manager
+        if manager:
+            try:
+                manager.cleanup()
+            except Exception as cleanup_error:
+                logger.error(f"Error cleaning up script manager: {cleanup_error}")
