@@ -44,8 +44,8 @@ RUN mkdir -p /app/data /app/scripts /app/logs && \
 RUN ln -sf /dev/stdout /app/logs/app.log && \
     ln -sf /dev/stderr /app/logs/error.log
 
-# Copy backend requirements and install dependencies
-COPY backend/requirements.txt ./
+# Copy requirements and install dependencies
+COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy backend code
