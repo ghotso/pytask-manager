@@ -3,6 +3,7 @@ import logging
 from typing import List, Optional, cast
 from datetime import datetime
 import os
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, BackgroundTasks
 from starlette.websockets import WebSocketDisconnect
@@ -18,6 +19,7 @@ from ..script_manager import ScriptManager
 from .models import (DependencyCreate, DependencyRead, ExecutionRead, ExecutionResponse,
                     ScheduleCreate, ScheduleRead, ScheduleUpdate, ScriptCreate,
                     ScriptRead, ScriptUpdate, TagCreate, TagRead)
+from ..config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -62,14 +64,6 @@ async def create_script(
         logger.info("Received create script request")
         logger.info(f"Script data: {script_data.model_dump_json(indent=2)}")
         
-        # Debug: Check directory permissions
-        scripts_dir = os.environ.get("PYTASK_SCRIPTS_DIR", "/app/scripts")
-        logger.info(f"Checking scripts directory: {scripts_dir}")
-        logger.info(f"Directory exists: {os.path.exists(scripts_dir)}")
-        logger.info(f"Directory permissions: {oct(os.stat(scripts_dir).st_mode)[-3:]}")
-        logger.info(f"Current user: {os.getuid()}:{os.getgid()}")
-        logger.info(f"Directory owner: {os.stat(scripts_dir).st_uid}:{os.stat(scripts_dir).st_gid}")
-        
         # Check if script with same name exists
         existing_script = await session.execute(
             select(Script).where(Script.name == script_data.name)
@@ -91,6 +85,13 @@ async def create_script(
         )
         session.add(script)
         await session.flush()  # Flush to get the script ID
+
+        # Create script directory structure
+        script_dir = Path(settings.scripts_dir) / str(script.id)
+        script_dir.mkdir(parents=True, exist_ok=True)
+        script_path = script_dir / "script.py"
+        script_path.write_text(script.content)
+        logger.info(f"Created script directory at {script_dir}")
         
         # Get or create tags in a single query
         if script_data.tags:
@@ -291,7 +292,7 @@ async def delete_script(
     script = await _get_script(session, script_id)
     
     # Delete script and clean up its environment
-    manager = ScriptManager(script_id)
+    manager = ScriptManager(script_id, base_dir=str(settings.scripts_dir))
     manager.cleanup()
     await session.delete(script)
     await session.commit()
@@ -394,7 +395,7 @@ async def check_dependencies(
 ) -> List[str]:
     """Check for outdated dependencies in a script."""
     script = await _get_script(session, script_id)
-    manager = ScriptManager(script_id)
+    manager = ScriptManager(script_id, base_dir=str(settings.scripts_dir))
     return await manager.check_dependencies()
 
 
@@ -448,7 +449,7 @@ async def execute_script(
     await session.refresh(execution)
 
     # Initialize script manager
-    script_manager = ScriptManager(script_id)
+    script_manager = ScriptManager(script_id, base_dir=str(settings.scripts_dir))
     
     try:
         # Set up environment first
@@ -565,7 +566,7 @@ async def websocket_endpoint(
         
         try:
             # Set up environment
-            manager = ScriptManager(script_id)
+            manager = ScriptManager(script_id, base_dir=str(settings.scripts_dir))
             await manager.setup_environment(script.content, script.dependencies)
             logger.debug("Environment setup complete")
             
@@ -653,7 +654,7 @@ async def install_dependencies(
         script = await _get_script(session, script_id)
         
         # Create script manager and set up environment
-        manager = ScriptManager(script_id)
+        manager = ScriptManager(script_id, base_dir=str(settings.scripts_dir))
         await manager.setup_environment(script.content, script.dependencies)
         
         # Get installed versions
@@ -705,7 +706,7 @@ async def uninstall_dependency(
     if not script:
         raise HTTPException(status_code=404, detail="Script not found")
     
-    script_manager = ScriptManager(script_id)
+    script_manager = ScriptManager(script_id, base_dir=str(settings.scripts_dir))
     
     try:
         # Find the dependency to delete
@@ -807,7 +808,7 @@ async def _get_or_create_tag(session: AsyncSession, tag_name: str) -> Tag:
 
 async def _update_script_environment(script_id: int, content: str, dependencies: List[Dependency]) -> None:
     """Update a script's virtual environment."""
-    manager = ScriptManager(script_id)
+    manager = ScriptManager(script_id, base_dir=str(settings.scripts_dir))
     await manager.setup_environment(content, dependencies)
 
 

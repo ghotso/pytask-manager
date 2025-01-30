@@ -9,6 +9,7 @@ import {
   IconClock,
   IconLoader2,
 } from '@tabler/icons-react';
+import { ExecutionStatus } from '../types';
 
 interface ExtendedExecution extends Execution {
   scriptName: string;
@@ -117,25 +118,23 @@ export function ExecutionLogsPage() {
             >
               <Group justify="space-between" mb="xs">
                 <Text fw={500}>{execution.scriptName}</Text>
-                <Badge 
+                {execution.status === ExecutionStatus.SUCCESS ? (
+                  <IconCheck size={18} color="var(--mantine-color-green-filled)" />
+                ) : execution.status === ExecutionStatus.RUNNING ? (
+                  <IconLoader2 size={18} className="rotating" color="var(--mantine-color-blue-filled)" />
+                ) : execution.status === ExecutionStatus.PENDING ? (
+                  <IconClock size={18} color="var(--mantine-color-yellow-filled)" />
+                ) : (
+                  <IconX size={18} color="var(--mantine-color-red-filled)" />
+                )}
+                <Badge
                   color={
-                    execution.status === 'SUCCESS' ? 'green' : 
-                    execution.status === 'PENDING' ? 'yellow' : 
-                    execution.status === 'RUNNING' ? 'blue' : 'red'
-                  }
-                  leftSection={
-                    execution.status === 'SUCCESS' ? (
-                      <IconCheck size={12} />
-                    ) : execution.status === 'RUNNING' ? (
-                      <IconLoader2 size={12} className="rotating" />
-                    ) : execution.status === 'PENDING' ? (
-                      <IconClock size={12} />
-                    ) : (
-                      <IconX size={12} />
-                    )
+                    execution.status === ExecutionStatus.SUCCESS ? 'green' : 
+                    execution.status === ExecutionStatus.PENDING ? 'yellow' : 
+                    execution.status === ExecutionStatus.RUNNING ? 'blue' : 'red'
                   }
                 >
-                  {execution.status}
+                  {execution.status.toUpperCase()}
                 </Badge>
               </Group>
               
@@ -190,23 +189,12 @@ export function ExecutionLogsPage() {
                     <>
                       <Badge
                         color={
-                          selectedExecution.status === 'SUCCESS' ? 'green' : 
-                          selectedExecution.status === 'PENDING' ? 'yellow' : 
-                          selectedExecution.status === 'RUNNING' ? 'blue' : 'red'
-                        }
-                        leftSection={
-                          selectedExecution.status === 'SUCCESS' ? (
-                            <IconCheck size={12} />
-                          ) : selectedExecution.status === 'RUNNING' ? (
-                            <IconLoader2 size={12} className="rotating" />
-                          ) : selectedExecution.status === 'PENDING' ? (
-                            <IconClock size={12} />
-                          ) : (
-                            <IconX size={12} />
-                          )
+                          selectedExecution.status === ExecutionStatus.SUCCESS ? 'green' : 
+                          selectedExecution.status === ExecutionStatus.PENDING ? 'yellow' : 
+                          selectedExecution.status === ExecutionStatus.RUNNING ? 'blue' : 'red'
                         }
                       >
-                        {selectedExecution.status}
+                        {selectedExecution.status.toUpperCase()}
                       </Badge>
                       <Text size="sm" c="dimmed">
                         {new Date(selectedExecution.started_at).toLocaleString()}

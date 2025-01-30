@@ -30,10 +30,10 @@ export interface Execution {
 }
 
 export enum ExecutionStatus {
-  PENDING = 'PENDING',
-  RUNNING = 'RUNNING',
-  SUCCESS = 'SUCCESS',
-  FAILED = 'FAILED'
+  PENDING = 'pending',
+  RUNNING = 'running',
+  SUCCESS = 'success',
+  FAILURE = 'failure'
 }
 
 export interface Script {
