@@ -9,6 +9,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.engine.reflection import Inspector
 
 
 # revision identifiers, used by Alembic.
@@ -18,13 +19,24 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+def column_exists(table_name: str, column_name: str) -> bool:
+    """Check if a column exists in the specified table."""
+    inspector = Inspector.from_engine(op.get_bind())
+    columns = [col['name'] for col in inspector.get_columns(table_name)]
+    return column_name in columns
+
+
 def upgrade() -> None:
-    # Drop the is_active column from schedules table
-    op.drop_column('schedules', 'is_active')
+    # Only drop the is_active column if it exists
+    if column_exists('schedules', 'is_active'):
+        with op.batch_alter_table('schedules', schema=None) as batch_op:
+            batch_op.drop_column('is_active')
 
 
 def downgrade() -> None:
-    # Add back the is_active column with default value True
-    op.add_column('schedules',
-        sa.Column('is_active', sa.Boolean(), nullable=False, server_default='true')
-    ) 
+    # Only add the is_active column if it doesn't exist
+    if not column_exists('schedules', 'is_active'):
+        with op.batch_alter_table('schedules', schema=None) as batch_op:
+            batch_op.add_column(
+                sa.Column('is_active', sa.Boolean(), nullable=False, server_default='true')
+            ) 
