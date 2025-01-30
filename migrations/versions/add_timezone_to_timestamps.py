@@ -77,15 +77,10 @@ def upgrade() -> None:
     ''')
     op.execute('INSERT INTO executions_new SELECT * FROM executions')
     
-    # Step 4: Drop old tables in correct order (first remove foreign key references)
-    op.execute('UPDATE executions SET schedule_id = NULL')
-    op.execute('UPDATE executions SET script_id = NULL')
-    op.execute('UPDATE schedules SET script_id = NULL')
-    
-    # Now drop the tables in reverse dependency order
-    op.execute('DROP TABLE IF EXISTS executions')
-    op.execute('DROP TABLE IF EXISTS schedules')
-    op.execute('DROP TABLE IF EXISTS scripts')
+    # Step 4: Drop old tables in correct order
+    op.execute('DROP TABLE executions')
+    op.execute('DROP TABLE schedules')
+    op.execute('DROP TABLE scripts')
     
     # Step 5: Rename new tables
     op.execute('ALTER TABLE executions_new RENAME TO executions')
@@ -117,7 +112,7 @@ def downgrade() -> None:
             cron_expression VARCHAR(100) NOT NULL,
             description VARCHAR(255),
             created_at DATETIME NOT NULL,
-            FOREIGN KEY(script_id) REFERENCES scripts_old(id)
+            FOREIGN KEY(script_id) REFERENCES scripts_old(id) ON DELETE CASCADE
         )
     ''')
     
@@ -131,8 +126,8 @@ def downgrade() -> None:
             status VARCHAR NOT NULL,
             log_output VARCHAR,
             error_message VARCHAR,
-            FOREIGN KEY(script_id) REFERENCES scripts_old(id),
-            FOREIGN KEY(schedule_id) REFERENCES schedules_old(id)
+            FOREIGN KEY(script_id) REFERENCES scripts_old(id) ON DELETE CASCADE,
+            FOREIGN KEY(schedule_id) REFERENCES schedules_old(id) ON DELETE SET NULL
         )
     ''')
     
@@ -141,17 +136,12 @@ def downgrade() -> None:
     op.execute('INSERT INTO schedules_old SELECT * FROM schedules')
     op.execute('INSERT INTO executions_old SELECT * FROM executions')
     
-    # Step 3: Remove foreign key references before dropping tables
-    op.execute('UPDATE executions SET schedule_id = NULL')
-    op.execute('UPDATE executions SET script_id = NULL')
-    op.execute('UPDATE schedules SET script_id = NULL')
+    # Step 3: Drop new tables
+    op.execute('DROP TABLE executions')
+    op.execute('DROP TABLE schedules')
+    op.execute('DROP TABLE scripts')
     
-    # Step 4: Drop new tables in correct order
-    op.execute('DROP TABLE IF EXISTS executions')
-    op.execute('DROP TABLE IF EXISTS schedules')
-    op.execute('DROP TABLE IF EXISTS scripts')
-    
-    # Step 5: Rename old tables
+    # Step 4: Rename old tables
     op.execute('ALTER TABLE executions_old RENAME TO executions')
     op.execute('ALTER TABLE schedules_old RENAME TO schedules')
     op.execute('ALTER TABLE scripts_old RENAME TO scripts') 

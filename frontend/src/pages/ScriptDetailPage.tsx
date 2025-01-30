@@ -280,7 +280,18 @@ export function ScriptDetailPage() {
 
       socket.onmessage = (event) => {
         console.log('Received WebSocket message:', event.data);
-        setExecutionOutput(prev => [...prev, event.data]);
+        // Force immediate state update and re-render
+        setExecutionOutput(prev => {
+          const newOutput = [...prev, event.data];
+          // Force scroll to bottom on next render
+          setTimeout(() => {
+            const outputElement = document.querySelector('.execution-output');
+            if (outputElement) {
+              outputElement.scrollTop = outputElement.scrollHeight;
+            }
+          }, 0);
+          return newOutput;
+        });
       };
 
       socket.onerror = (error) => {
@@ -514,10 +525,18 @@ export function ScriptDetailPage() {
                 color: '#d4d4d4',
                 height: '100%',
                 overflowY: 'auto',
+                fontFamily: 'monospace',
+                fontSize: '14px',
+                lineHeight: '1.4'
               }}>
                 {executionOutput.length > 0 ? (
                   executionOutput.map((line, index) => (
-                    <div key={index}>{line}</div>
+                    <div key={`${index}-${line}`} style={{ 
+                      padding: '2px 0',
+                      borderBottom: '1px solid rgba(255,255,255,0.05)'
+                    }}>
+                      {line}
+                    </div>
                   ))
                 ) : (
                   <Text c="dimmed" ta="center">
