@@ -119,16 +119,16 @@ export function ExecutionLogsPage() {
                 <Text fw={500}>{execution.scriptName}</Text>
                 <Badge 
                   color={
-                    execution.status === ExecutionStatus.SUCCESS ? 'green' : 
-                    execution.status === ExecutionStatus.PENDING ? 'yellow' : 
-                    execution.status === ExecutionStatus.RUNNING ? 'blue' : 'red'
+                    execution.status === 'SUCCESS' ? 'green' : 
+                    execution.status === 'PENDING' ? 'yellow' : 
+                    execution.status === 'RUNNING' ? 'blue' : 'red'
                   }
                   leftSection={
-                    execution.status === ExecutionStatus.SUCCESS ? (
+                    execution.status === 'SUCCESS' ? (
                       <IconCheck size={12} />
-                    ) : execution.status === ExecutionStatus.RUNNING ? (
+                    ) : execution.status === 'RUNNING' ? (
                       <IconLoader2 size={12} className="rotating" />
-                    ) : execution.status === ExecutionStatus.PENDING ? (
+                    ) : execution.status === 'PENDING' ? (
                       <IconClock size={12} />
                     ) : (
                       <IconX size={12} />
@@ -190,16 +190,16 @@ export function ExecutionLogsPage() {
                     <>
                       <Badge
                         color={
-                          selectedExecution.status === ExecutionStatus.SUCCESS ? 'green' : 
-                          selectedExecution.status === ExecutionStatus.PENDING ? 'yellow' : 
-                          selectedExecution.status === ExecutionStatus.RUNNING ? 'blue' : 'red'
+                          selectedExecution.status === 'SUCCESS' ? 'green' : 
+                          selectedExecution.status === 'PENDING' ? 'yellow' : 
+                          selectedExecution.status === 'RUNNING' ? 'blue' : 'red'
                         }
                         leftSection={
-                          selectedExecution.status === ExecutionStatus.SUCCESS ? (
+                          selectedExecution.status === 'SUCCESS' ? (
                             <IconCheck size={12} />
-                          ) : selectedExecution.status === ExecutionStatus.RUNNING ? (
+                          ) : selectedExecution.status === 'RUNNING' ? (
                             <IconLoader2 size={12} className="rotating" />
-                          ) : selectedExecution.status === ExecutionStatus.PENDING ? (
+                          ) : selectedExecution.status === 'PENDING' ? (
                             <IconClock size={12} />
                           ) : (
                             <IconX size={12} />

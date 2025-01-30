@@ -948,11 +948,11 @@ export function ScriptDetailPage() {
                   >
                     <Group justify="space-between" mb={4}>
                       <Group gap="xs">
-                        {execution.status === ExecutionStatus.SUCCESS ? (
+                        {execution.status === 'SUCCESS' ? (
                           <IconCheck size={18} color="var(--mantine-color-green-filled)" />
-                        ) : execution.status === ExecutionStatus.RUNNING ? (
+                        ) : execution.status === 'RUNNING' ? (
                           <IconLoader2 size={18} className="rotating" color="var(--mantine-color-blue-filled)" />
-                        ) : execution.status === ExecutionStatus.PENDING ? (
+                        ) : execution.status === 'PENDING' ? (
                           <IconClock size={18} color="var(--mantine-color-yellow-filled)" />
                         ) : (
                           <IconX size={18} color="var(--mantine-color-red-filled)" />
