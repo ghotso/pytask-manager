@@ -21,6 +21,7 @@ export function ExecutionLogsPage() {
   const [scripts, setScripts] = useState<Script[]>([]);
   const [executions, setExecutions] = useState<ExtendedExecution[]>([]);
   const [selectedScript, setSelectedScript] = useState<string | null>(searchParams.get('script'));
+  const [selectedStatus, setSelectedStatus] = useState<string | null>(searchParams.get('status'));
   const [isLoading, setIsLoading] = useState(true);
   const [selectedLogs, setSelectedLogs] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -46,7 +47,19 @@ export function ExecutionLogsPage() {
 
         // Sort executions by date, most recent first
         allExecutions.sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime());
-        setExecutions(allExecutions);
+
+        // Filter by script name if selected
+        let filteredExecutions = allExecutions;
+        if (selectedScript) {
+          filteredExecutions = filteredExecutions.filter(execution => execution.scriptName === selectedScript);
+        }
+
+        // Filter by status if selected
+        if (selectedStatus) {
+          filteredExecutions = filteredExecutions.filter(execution => execution.status === selectedStatus);
+        }
+
+        setExecutions(filteredExecutions);
       } catch (error) {
         console.error('Failed to load data:', error);
       } finally {
@@ -55,7 +68,7 @@ export function ExecutionLogsPage() {
     };
 
     loadData();
-  }, []);
+  }, [selectedScript, selectedStatus]);
 
   const handleScriptChange = (value: string | null) => {
     setSelectedScript(value);
@@ -66,14 +79,14 @@ export function ExecutionLogsPage() {
     }
   };
 
-  const filteredExecutions = selectedScript
-    ? executions.filter(execution => execution.scriptName === selectedScript)
-    : executions;
-
-  const scriptOptions = scripts.map(script => ({
-    value: script.name,
-    label: script.name,
-  }));
+  const handleStatusChange = (value: string | null) => {
+    setSelectedStatus(value);
+    if (value) {
+      setSearchParams({ status: value });
+    } else {
+      setSearchParams({});
+    }
+  };
 
   const closeLogModal = () => {
     setIsModalOpen(false);
@@ -87,22 +100,43 @@ export function ExecutionLogsPage() {
       <Stack gap="md">
         <Title order={2}>Execution Logs</Title>
         
-        <Select
-          label="Filter by Script"
-          placeholder="Select a script"
-          data={scriptOptions}
-          value={selectedScript}
-          onChange={handleScriptChange}
-          clearable
-          style={{ maxWidth: '300px' }}
-        />
+        <Group>
+          <Select
+            label="Filter by Script"
+            placeholder="All Scripts"
+            data={[
+              { value: '', label: 'All Scripts' },
+              ...scripts.map(script => ({
+                value: script.name,
+                label: script.name
+              }))
+            ]}
+            value={selectedScript}
+            onChange={handleScriptChange}
+            style={{ minWidth: '200px' }}
+          />
+          <Select
+            label="Filter by Status"
+            placeholder="All Statuses"
+            data={[
+              { value: '', label: 'All Statuses' },
+              { value: ExecutionStatus.SUCCESS, label: 'Success' },
+              { value: ExecutionStatus.RUNNING, label: 'Running' },
+              { value: ExecutionStatus.PENDING, label: 'Pending' },
+              { value: ExecutionStatus.FAILURE, label: 'Failed' }
+            ]}
+            value={selectedStatus}
+            onChange={handleStatusChange}
+            style={{ minWidth: '200px' }}
+          />
+        </Group>
 
         <div style={{ 
           display: 'grid', 
           gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', 
           gap: '1rem' 
         }}>
-          {filteredExecutions.map((execution) => (
+          {executions.map((execution) => (
             <Card 
               key={execution.id} 
               shadow="sm" 
@@ -143,7 +177,7 @@ export function ExecutionLogsPage() {
               </Text>
             </Card>
           ))}
-          {!isLoading && filteredExecutions.length === 0 && (
+          {!isLoading && executions.length === 0 && (
             <Text c="dimmed" ta="center" style={{ gridColumn: '1 / -1', padding: '2rem' }}>
               No executions found
             </Text>
