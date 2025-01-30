@@ -11,7 +11,6 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.engine.reflection import Inspector
 from sqlalchemy.engine import Connection
-from datetime import datetime, timezone
 
 
 # revision identifiers, used by Alembic.
@@ -34,78 +33,112 @@ def upgrade() -> None:
     # Get database connection
     connection = op.get_bind()
     
-    # Scripts table
-    with op.batch_alter_table('scripts', schema=None) as batch_op:
-        # Only modify if the column exists and isn't already timezone-aware
-        if get_column_type(connection, 'scripts', 'created_at') == 'DATETIME':
-            batch_op.alter_column('created_at',
-                                existing_type=sa.DateTime(),
-                                type_=sa.DateTime(timezone=True),
-                                existing_nullable=True,
-                                postgresql_using='created_at AT TIME ZONE \'UTC\'')
-        if get_column_type(connection, 'scripts', 'updated_at') == 'DATETIME':
-            batch_op.alter_column('updated_at',
-                                existing_type=sa.DateTime(),
-                                type_=sa.DateTime(timezone=True),
-                                existing_nullable=True,
-                                postgresql_using='updated_at AT TIME ZONE \'UTC\'')
+    # Create temporary tables with timezone support
+    op.execute('''
+        CREATE TABLE scripts_new (
+            id INTEGER NOT NULL PRIMARY KEY,
+            name VARCHAR(255) NOT NULL UNIQUE,
+            description VARCHAR(1000),
+            content VARCHAR NOT NULL,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            is_active BOOLEAN NOT NULL
+        )
+    ''')
     
-    # Executions table
-    with op.batch_alter_table('executions', schema=None) as batch_op:
-        if get_column_type(connection, 'executions', 'started_at') == 'DATETIME':
-            batch_op.alter_column('started_at',
-                                existing_type=sa.DateTime(),
-                                type_=sa.DateTime(timezone=True),
-                                existing_nullable=True,
-                                postgresql_using='started_at AT TIME ZONE \'UTC\'')
-        if get_column_type(connection, 'executions', 'completed_at') == 'DATETIME':
-            batch_op.alter_column('completed_at',
-                                existing_type=sa.DateTime(),
-                                type_=sa.DateTime(timezone=True),
-                                existing_nullable=True,
-                                postgresql_using='completed_at AT TIME ZONE \'UTC\'')
+    op.execute('''
+        CREATE TABLE executions_new (
+            id INTEGER NOT NULL PRIMARY KEY,
+            script_id INTEGER NOT NULL,
+            schedule_id INTEGER,
+            started_at DATETIME NOT NULL,
+            completed_at DATETIME,
+            status VARCHAR NOT NULL,
+            log_output VARCHAR,
+            error_message VARCHAR,
+            FOREIGN KEY(script_id) REFERENCES scripts(id) ON DELETE CASCADE,
+            FOREIGN KEY(schedule_id) REFERENCES schedules(id) ON DELETE SET NULL
+        )
+    ''')
     
-    # Schedules table
-    with op.batch_alter_table('schedules', schema=None) as batch_op:
-        if get_column_type(connection, 'schedules', 'created_at') == 'DATETIME':
-            batch_op.alter_column('created_at',
-                                existing_type=sa.DateTime(),
-                                type_=sa.DateTime(timezone=True),
-                                existing_nullable=True,
-                                postgresql_using='created_at AT TIME ZONE \'UTC\'')
+    op.execute('''
+        CREATE TABLE schedules_new (
+            id INTEGER NOT NULL PRIMARY KEY,
+            script_id INTEGER NOT NULL,
+            cron_expression VARCHAR(100) NOT NULL,
+            description VARCHAR(255),
+            created_at DATETIME NOT NULL,
+            FOREIGN KEY(script_id) REFERENCES scripts(id) ON DELETE CASCADE
+        )
+    ''')
+    
+    # Copy data to new tables
+    op.execute('INSERT INTO scripts_new SELECT * FROM scripts')
+    op.execute('INSERT INTO executions_new SELECT * FROM executions')
+    op.execute('INSERT INTO schedules_new SELECT * FROM schedules')
+    
+    # Drop old tables and rename new ones
+    op.execute('DROP TABLE executions')
+    op.execute('DROP TABLE schedules')
+    op.execute('DROP TABLE scripts')
+    
+    op.execute('ALTER TABLE scripts_new RENAME TO scripts')
+    op.execute('ALTER TABLE executions_new RENAME TO executions')
+    op.execute('ALTER TABLE schedules_new RENAME TO schedules')
 
 
 def downgrade() -> None:
+    # Similar process but removing timezone support
     connection = op.get_bind()
     
-    # Remove timezone support from timestamp columns only if they are timezone-aware
-    with op.batch_alter_table('scripts', schema=None) as batch_op:
-        if get_column_type(connection, 'scripts', 'created_at') == 'DATETIME WITH TIME ZONE':
-            batch_op.alter_column('created_at',
-                                existing_type=sa.DateTime(timezone=True),
-                                type_=sa.DateTime(),
-                                existing_nullable=True)
-        if get_column_type(connection, 'scripts', 'updated_at') == 'DATETIME WITH TIME ZONE':
-            batch_op.alter_column('updated_at',
-                                existing_type=sa.DateTime(timezone=True),
-                                type_=sa.DateTime(),
-                                existing_nullable=True)
+    op.execute('''
+        CREATE TABLE scripts_old (
+            id INTEGER NOT NULL PRIMARY KEY,
+            name VARCHAR(255) NOT NULL UNIQUE,
+            description VARCHAR(1000),
+            content VARCHAR NOT NULL,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            is_active BOOLEAN NOT NULL
+        )
+    ''')
     
-    with op.batch_alter_table('executions', schema=None) as batch_op:
-        if get_column_type(connection, 'executions', 'started_at') == 'DATETIME WITH TIME ZONE':
-            batch_op.alter_column('started_at',
-                                existing_type=sa.DateTime(timezone=True),
-                                type_=sa.DateTime(),
-                                existing_nullable=True)
-        if get_column_type(connection, 'executions', 'completed_at') == 'DATETIME WITH TIME ZONE':
-            batch_op.alter_column('completed_at',
-                                existing_type=sa.DateTime(timezone=True),
-                                type_=sa.DateTime(),
-                                existing_nullable=True)
+    op.execute('''
+        CREATE TABLE executions_old (
+            id INTEGER NOT NULL PRIMARY KEY,
+            script_id INTEGER NOT NULL,
+            schedule_id INTEGER,
+            started_at DATETIME NOT NULL,
+            completed_at DATETIME,
+            status VARCHAR NOT NULL,
+            log_output VARCHAR,
+            error_message VARCHAR,
+            FOREIGN KEY(script_id) REFERENCES scripts(id),
+            FOREIGN KEY(schedule_id) REFERENCES schedules(id)
+        )
+    ''')
     
-    with op.batch_alter_table('schedules', schema=None) as batch_op:
-        if get_column_type(connection, 'schedules', 'created_at') == 'DATETIME WITH TIME ZONE':
-            batch_op.alter_column('created_at',
-                                existing_type=sa.DateTime(timezone=True),
-                                type_=sa.DateTime(),
-                                existing_nullable=True) 
+    op.execute('''
+        CREATE TABLE schedules_old (
+            id INTEGER NOT NULL PRIMARY KEY,
+            script_id INTEGER NOT NULL,
+            cron_expression VARCHAR(100) NOT NULL,
+            description VARCHAR(255),
+            created_at DATETIME NOT NULL,
+            FOREIGN KEY(script_id) REFERENCES scripts(id)
+        )
+    ''')
+    
+    # Copy data to old tables
+    op.execute('INSERT INTO scripts_old SELECT * FROM scripts')
+    op.execute('INSERT INTO executions_old SELECT * FROM executions')
+    op.execute('INSERT INTO schedules_old SELECT * FROM schedules')
+    
+    # Drop new tables and rename old ones
+    op.execute('DROP TABLE executions')
+    op.execute('DROP TABLE schedules')
+    op.execute('DROP TABLE scripts')
+    
+    op.execute('ALTER TABLE scripts_old RENAME TO scripts')
+    op.execute('ALTER TABLE executions_old RENAME TO executions')
+    op.execute('ALTER TABLE schedules_old RENAME TO schedules') 
