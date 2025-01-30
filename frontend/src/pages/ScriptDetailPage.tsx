@@ -30,7 +30,7 @@ import { DependencyInput } from '../components/DependencyInput';
 import { ScheduleInput } from '../components/ScheduleInput';
 import { useScript } from '../hooks/useScript';
 import { scriptsApi } from '../api/client';
-import { Tag, Dependency, Schedule, Execution, ExecutionStatus } from '../types';
+import { Tag, Dependency, Schedule, Execution } from '../types';
 import { WS_BASE_URL } from '../config';
 import axios from 'axios';
 
@@ -572,9 +572,9 @@ export function ScriptDetailPage() {
                   <>
                     <Badge
                       color={
-                        selectedExecution.status === ExecutionStatus.SUCCESS ? 'green' : 
-                        selectedExecution.status === ExecutionStatus.PENDING ? 'yellow' : 
-                        selectedExecution.status === ExecutionStatus.RUNNING ? 'blue' : 'red'
+                        selectedExecution.status === 'SUCCESS' ? 'green' : 
+                        selectedExecution.status === 'PENDING' ? 'yellow' : 
+                        selectedExecution.status === 'RUNNING' ? 'blue' : 'red'
                       }
                     >
                       {selectedExecution.status}

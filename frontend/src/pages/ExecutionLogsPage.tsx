@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Card, Select, Text, Group, Badge, Box, Code, Stack, Title, LoadingOverlay, Button } from '@mantine/core';
 import { useApi } from '../hooks/useApi';
-import { Script, Execution, ExecutionStatus } from '../types';
+import { Script, Execution } from '../types';
 import { useSearchParams } from 'react-router-dom';
 import { 
   IconCheck,
