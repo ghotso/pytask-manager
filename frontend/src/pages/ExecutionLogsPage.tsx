@@ -3,6 +3,12 @@ import { Card, Select, Text, Group, Badge, Box, Code, Stack, Title, LoadingOverl
 import { useApi } from '../hooks/useApi';
 import { Script, Execution, ExecutionStatus } from '../types';
 import { useSearchParams } from 'react-router-dom';
+import { 
+  IconCheck,
+  IconX,
+  IconClock,
+  IconLoader2,
+} from '@tabler/icons-react';
 
 interface ExtendedExecution extends Execution {
   scriptName: string;
@@ -112,7 +118,22 @@ export function ExecutionLogsPage() {
               <Group justify="space-between" mb="xs">
                 <Text fw={500}>{execution.scriptName}</Text>
                 <Badge 
-                  color={execution.status === ExecutionStatus.SUCCESS ? 'green' : 'red'}
+                  color={
+                    execution.status === ExecutionStatus.SUCCESS ? 'green' : 
+                    execution.status === ExecutionStatus.PENDING ? 'yellow' : 
+                    execution.status === ExecutionStatus.RUNNING ? 'blue' : 'red'
+                  }
+                  leftSection={
+                    execution.status === ExecutionStatus.SUCCESS ? (
+                      <IconCheck size={12} />
+                    ) : execution.status === ExecutionStatus.RUNNING ? (
+                      <IconLoader2 size={12} className="rotating" />
+                    ) : execution.status === ExecutionStatus.PENDING ? (
+                      <IconClock size={12} />
+                    ) : (
+                      <IconX size={12} />
+                    )
+                  }
                 >
                   {execution.status}
                 </Badge>
@@ -168,7 +189,22 @@ export function ExecutionLogsPage() {
                   {selectedExecution && (
                     <>
                       <Badge
-                        color={selectedExecution.status === ExecutionStatus.SUCCESS ? 'green' : 'red'}
+                        color={
+                          selectedExecution.status === ExecutionStatus.SUCCESS ? 'green' : 
+                          selectedExecution.status === ExecutionStatus.PENDING ? 'yellow' : 
+                          selectedExecution.status === ExecutionStatus.RUNNING ? 'blue' : 'red'
+                        }
+                        leftSection={
+                          selectedExecution.status === ExecutionStatus.SUCCESS ? (
+                            <IconCheck size={12} />
+                          ) : selectedExecution.status === ExecutionStatus.RUNNING ? (
+                            <IconLoader2 size={12} className="rotating" />
+                          ) : selectedExecution.status === ExecutionStatus.PENDING ? (
+                            <IconClock size={12} />
+                          ) : (
+                            <IconX size={12} />
+                          )
+                        }
                       >
                         {selectedExecution.status}
                       </Badge>

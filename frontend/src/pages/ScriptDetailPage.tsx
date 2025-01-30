@@ -948,28 +948,15 @@ export function ScriptDetailPage() {
                   >
                     <Group justify="space-between" mb={4}>
                       <Group gap="xs">
-                        <Badge
-                          color={
-                            execution.status === ExecutionStatus.SUCCESS ? 'green' : 
-                            execution.status === ExecutionStatus.PENDING ? 'yellow' : 
-                            execution.status === ExecutionStatus.RUNNING ? 'blue' : 'red'
-                          }
-                          variant="filled"
-                          size="sm"
-                          leftSection={
-                            execution.status === ExecutionStatus.SUCCESS ? (
-                              <IconCheck size={12} />
-                            ) : execution.status === ExecutionStatus.RUNNING ? (
-                              <IconLoader2 size={12} className="rotating" />
-                            ) : execution.status === ExecutionStatus.PENDING ? (
-                              <IconClock size={12} />
-                            ) : (
-                              <IconX size={12} />
-                            )
-                          }
-                        >
-                          {execution.status}
-                        </Badge>
+                        {execution.status === ExecutionStatus.SUCCESS ? (
+                          <IconCheck size={18} color="var(--mantine-color-green-filled)" />
+                        ) : execution.status === ExecutionStatus.RUNNING ? (
+                          <IconLoader2 size={18} className="rotating" color="var(--mantine-color-blue-filled)" />
+                        ) : execution.status === ExecutionStatus.PENDING ? (
+                          <IconClock size={18} color="var(--mantine-color-yellow-filled)" />
+                        ) : (
+                          <IconX size={18} color="var(--mantine-color-red-filled)" />
+                        )}
                         <Text size="sm" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
                           {new Date(execution.started_at).toLocaleString()}
                         </Text>
