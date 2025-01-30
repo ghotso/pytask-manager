@@ -7,6 +7,7 @@ from typing import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import (AsyncSession, async_sessionmaker,
                                   create_async_engine)
+from sqlalchemy import event, text
 
 from .config import settings
 from .models import Base, Script, Tag, Execution, Schedule, Dependency  # Import all models
@@ -18,6 +19,13 @@ engine = create_async_engine(
     settings.database_url,
     echo=False,
 )
+
+# Enable SQLite foreign key constraints
+@event.listens_for(engine.sync_engine, "connect")
+def set_sqlite_pragma(dbapi_connection, connection_record):
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
 
 # Create session factory
 async_session_factory = async_sessionmaker(
@@ -37,6 +45,8 @@ async def create_tables() -> None:
     
     try:
         async with engine.begin() as conn:
+            # Enable foreign key constraints
+            await conn.execute(text("PRAGMA foreign_keys=ON"))
             await conn.run_sync(Base.metadata.create_all)
         logger.info("Database tables created successfully")
     except Exception as e:
@@ -47,6 +57,8 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
     """Get a database session."""
     async with async_session_factory() as session:
         try:
+            # Enable foreign key constraints for this session
+            await session.execute(text("PRAGMA foreign_keys=ON"))
             yield session
         except Exception:
             await session.rollback()
@@ -59,6 +71,8 @@ async def get_session_context() -> AsyncGenerator[AsyncSession, None]:
     """Get a database session as a context manager."""
     async with async_session_factory() as session:
         try:
+            # Enable foreign key constraints for this session
+            await session.execute(text("PRAGMA foreign_keys=ON"))
             yield session
         except Exception:
             await session.rollback()

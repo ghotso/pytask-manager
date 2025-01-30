@@ -1,6 +1,6 @@
 from logging.config import fileConfig
 
-from sqlalchemy import engine_from_config
+from sqlalchemy import engine_from_config, text
 from sqlalchemy import pool
 
 from alembic import context
@@ -68,6 +68,9 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
+        # Enable SQLite foreign key constraints
+        connection.execute(text("PRAGMA foreign_keys=ON"))
+        
         context.configure(
             connection=connection, target_metadata=target_metadata
         )
