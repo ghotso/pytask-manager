@@ -33,7 +33,7 @@ def upgrade() -> None:
     # Get database connection
     connection = op.get_bind()
     
-    # Create temporary tables with timezone support
+    # Step 1: Create new scripts table and copy data
     op.execute('''
         CREATE TABLE scripts_new (
             id INTEGER NOT NULL PRIMARY KEY,
@@ -45,7 +45,22 @@ def upgrade() -> None:
             is_active BOOLEAN NOT NULL
         )
     ''')
+    op.execute('INSERT INTO scripts_new SELECT * FROM scripts')
     
+    # Step 2: Create new schedules table (referencing new scripts table)
+    op.execute('''
+        CREATE TABLE schedules_new (
+            id INTEGER NOT NULL PRIMARY KEY,
+            script_id INTEGER NOT NULL,
+            cron_expression VARCHAR(100) NOT NULL,
+            description VARCHAR(255),
+            created_at DATETIME NOT NULL,
+            FOREIGN KEY(script_id) REFERENCES scripts_new(id) ON DELETE CASCADE
+        )
+    ''')
+    op.execute('INSERT INTO schedules_new SELECT * FROM schedules')
+    
+    # Step 3: Create new executions table (referencing new tables)
     op.execute('''
         CREATE TABLE executions_new (
             id INTEGER NOT NULL PRIMARY KEY,
@@ -56,41 +71,28 @@ def upgrade() -> None:
             status VARCHAR NOT NULL,
             log_output VARCHAR,
             error_message VARCHAR,
-            FOREIGN KEY(script_id) REFERENCES scripts(id) ON DELETE CASCADE,
-            FOREIGN KEY(schedule_id) REFERENCES schedules(id) ON DELETE SET NULL
+            FOREIGN KEY(script_id) REFERENCES scripts_new(id) ON DELETE CASCADE,
+            FOREIGN KEY(schedule_id) REFERENCES schedules_new(id) ON DELETE SET NULL
         )
     ''')
-    
-    op.execute('''
-        CREATE TABLE schedules_new (
-            id INTEGER NOT NULL PRIMARY KEY,
-            script_id INTEGER NOT NULL,
-            cron_expression VARCHAR(100) NOT NULL,
-            description VARCHAR(255),
-            created_at DATETIME NOT NULL,
-            FOREIGN KEY(script_id) REFERENCES scripts(id) ON DELETE CASCADE
-        )
-    ''')
-    
-    # Copy data to new tables
-    op.execute('INSERT INTO scripts_new SELECT * FROM scripts')
     op.execute('INSERT INTO executions_new SELECT * FROM executions')
-    op.execute('INSERT INTO schedules_new SELECT * FROM schedules')
     
-    # Drop old tables and rename new ones
+    # Step 4: Drop old tables in correct order
     op.execute('DROP TABLE executions')
     op.execute('DROP TABLE schedules')
     op.execute('DROP TABLE scripts')
     
-    op.execute('ALTER TABLE scripts_new RENAME TO scripts')
+    # Step 5: Rename new tables
     op.execute('ALTER TABLE executions_new RENAME TO executions')
     op.execute('ALTER TABLE schedules_new RENAME TO schedules')
+    op.execute('ALTER TABLE scripts_new RENAME TO scripts')
 
 
 def downgrade() -> None:
-    # Similar process but removing timezone support
+    # Similar process but in reverse
     connection = op.get_bind()
     
+    # Step 1: Create old tables
     op.execute('''
         CREATE TABLE scripts_old (
             id INTEGER NOT NULL PRIMARY KEY,
@@ -104,6 +106,17 @@ def downgrade() -> None:
     ''')
     
     op.execute('''
+        CREATE TABLE schedules_old (
+            id INTEGER NOT NULL PRIMARY KEY,
+            script_id INTEGER NOT NULL,
+            cron_expression VARCHAR(100) NOT NULL,
+            description VARCHAR(255),
+            created_at DATETIME NOT NULL,
+            FOREIGN KEY(script_id) REFERENCES scripts_old(id)
+        )
+    ''')
+    
+    op.execute('''
         CREATE TABLE executions_old (
             id INTEGER NOT NULL PRIMARY KEY,
             script_id INTEGER NOT NULL,
@@ -113,32 +126,22 @@ def downgrade() -> None:
             status VARCHAR NOT NULL,
             log_output VARCHAR,
             error_message VARCHAR,
-            FOREIGN KEY(script_id) REFERENCES scripts(id),
-            FOREIGN KEY(schedule_id) REFERENCES schedules(id)
+            FOREIGN KEY(script_id) REFERENCES scripts_old(id),
+            FOREIGN KEY(schedule_id) REFERENCES schedules_old(id)
         )
     ''')
     
-    op.execute('''
-        CREATE TABLE schedules_old (
-            id INTEGER NOT NULL PRIMARY KEY,
-            script_id INTEGER NOT NULL,
-            cron_expression VARCHAR(100) NOT NULL,
-            description VARCHAR(255),
-            created_at DATETIME NOT NULL,
-            FOREIGN KEY(script_id) REFERENCES scripts(id)
-        )
-    ''')
-    
-    # Copy data to old tables
+    # Step 2: Copy data to old tables
     op.execute('INSERT INTO scripts_old SELECT * FROM scripts')
-    op.execute('INSERT INTO executions_old SELECT * FROM executions')
     op.execute('INSERT INTO schedules_old SELECT * FROM schedules')
+    op.execute('INSERT INTO executions_old SELECT * FROM executions')
     
-    # Drop new tables and rename old ones
+    # Step 3: Drop new tables
     op.execute('DROP TABLE executions')
     op.execute('DROP TABLE schedules')
     op.execute('DROP TABLE scripts')
     
-    op.execute('ALTER TABLE scripts_old RENAME TO scripts')
+    # Step 4: Rename old tables
     op.execute('ALTER TABLE executions_old RENAME TO executions')
-    op.execute('ALTER TABLE schedules_old RENAME TO schedules') 
+    op.execute('ALTER TABLE schedules_old RENAME TO schedules')
+    op.execute('ALTER TABLE scripts_old RENAME TO scripts') 
