@@ -40,7 +40,7 @@ RUN mkdir -p /app/data /app/scripts /app/logs && \
     chmod -R 755 /app && \
     chmod 777 /app/data /app/scripts /app/logs
 
-# Configure logging
+# Configure logging to stdout/stderr
 RUN ln -sf /dev/stdout /app/logs/app.log && \
     ln -sf /dev/stderr /app/logs/error.log
 
@@ -58,7 +58,7 @@ COPY --from=frontend-builder /app/frontend/dist ./static
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
-ENV PYTASK_DATABASE_URL=sqlite+aiosqlite:///data/data.db
+ENV PYTASK_DATABASE_URL=sqlite+aiosqlite:///app/data/data.db
 ENV PYTASK_SCRIPTS_DIR=/app/scripts
 ENV PYTASK_LOGS_DIR=/app/logs
 ENV PYTASK_DEBUG=true
@@ -72,11 +72,11 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8000/api/health || exit 1
 
 # Final permission check and fix
-RUN chown -R pytask:users /app && \
+RUN mkdir -p /app/data && \
+    touch /app/data/data.db && \
+    chown -R pytask:users /app && \
     chmod -R 755 /app && \
     chmod 777 /app/data /app/scripts /app/logs && \
-    touch /app/data/data.db && \
-    chown pytask:users /app/data/data.db && \
     chmod 666 /app/data/data.db && \
     ls -la /app/data && \
     ls -la /app/scripts && \
