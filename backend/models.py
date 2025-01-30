@@ -48,13 +48,27 @@ class Script(Base):
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=False)
     
-    # Relationships
+    # Relationships with cascade deletion
     tags: Mapped[List["Tag"]] = relationship(
-        secondary=script_tags, back_populates="scripts"
+        secondary=script_tags,
+        back_populates="scripts",
+        cascade="all, delete"
     )
-    executions: Mapped[List["Execution"]] = relationship(back_populates="script")
-    schedules: Mapped[List["Schedule"]] = relationship(back_populates="script")
-    dependencies: Mapped[List["Dependency"]] = relationship(back_populates="script")
+    executions: Mapped[List["Execution"]] = relationship(
+        back_populates="script",
+        cascade="all, delete-orphan",
+        passive_deletes=True
+    )
+    schedules: Mapped[List["Schedule"]] = relationship(
+        back_populates="script",
+        cascade="all, delete-orphan",
+        passive_deletes=True
+    )
+    dependencies: Mapped[List["Dependency"]] = relationship(
+        back_populates="script",
+        cascade="all, delete-orphan",
+        passive_deletes=True
+    )
 
 
 class Tag(Base):
@@ -77,8 +91,8 @@ class Execution(Base):
     __tablename__ = "executions"
     
     id: Mapped[int] = mapped_column(primary_key=True)
-    script_id: Mapped[int] = mapped_column(ForeignKey("scripts.id"))
-    schedule_id: Mapped[Optional[int]] = mapped_column(ForeignKey("schedules.id"))
+    script_id: Mapped[int] = mapped_column(ForeignKey("scripts.id", ondelete="CASCADE"))
+    schedule_id: Mapped[Optional[int]] = mapped_column(ForeignKey("schedules.id", ondelete="SET NULL"))
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     status: Mapped[ExecutionStatus] = mapped_column(
@@ -98,7 +112,7 @@ class Schedule(Base):
     __tablename__ = "schedules"
     
     id: Mapped[int] = mapped_column(primary_key=True)
-    script_id: Mapped[int] = mapped_column(ForeignKey("scripts.id"))
+    script_id: Mapped[int] = mapped_column(ForeignKey("scripts.id", ondelete="CASCADE"))
     cron_expression: Mapped[str] = mapped_column(String(100))
     description: Mapped[Optional[str]] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
@@ -113,7 +127,7 @@ class Dependency(Base):
     __tablename__ = "dependencies"
     
     id: Mapped[int] = mapped_column(primary_key=True)
-    script_id: Mapped[int] = mapped_column(ForeignKey("scripts.id"))
+    script_id: Mapped[int] = mapped_column(ForeignKey("scripts.id", ondelete="CASCADE"))
     package_name: Mapped[str] = mapped_column(String(255))
     version_spec: Mapped[str] = mapped_column(String(100))
     installed_version: Mapped[Optional[str]] = mapped_column(String(100))
