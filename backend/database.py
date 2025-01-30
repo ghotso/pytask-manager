@@ -1,6 +1,8 @@
 """Database configuration and utilities."""
 import logging
+import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import (AsyncSession, async_sessionmaker,
@@ -26,9 +28,20 @@ async_session_factory = async_sessionmaker(
 
 async def create_tables() -> None:
     """Create all tables in the database."""
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    logger.info("Database tables created")
+    # Ensure database file exists with proper permissions
+    db_file = settings.data_dir / "data.db"
+    if not db_file.exists():
+        db_file.touch()
+        os.chmod(db_file, 0o666)  # rw-rw-rw- permissions
+        logger.info(f"Created database file at {db_file} with permissions 666")
+    
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        logger.info("Database tables created successfully")
+    except Exception as e:
+        logger.error(f"Failed to create database tables: {e}")
+        raise
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
     """Get a database session."""

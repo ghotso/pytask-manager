@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     logs_dir: Path = Path("/app/logs")
     
     # Database settings
-    database_url: str = "sqlite+aiosqlite:///data/data.db"
+    database_url: str = "sqlite+aiosqlite:///app/data/data.db"
     
     # CORS settings
     cors_origins: list[str] = [
@@ -89,8 +89,8 @@ for directory in [settings.data_dir, settings.scripts_dir, settings.logs_dir]:
     os.chmod(directory, 0o777)  # Full permissions for mounted volumes
 
 # Create database file with proper permissions if it doesn't exist
-db_path = Path(settings.database_url.split("///")[1])
-db_path.parent.mkdir(parents=True, exist_ok=True)
-if not db_path.exists():
-    db_path.touch()
-    os.chmod(db_path, 0o666)  # rw-rw-rw- permissions for database file 
+db_file = settings.data_dir / "data.db"  # Use data_dir to construct the path
+if not db_file.exists():
+    db_file.touch()
+    os.chmod(db_file, 0o666)  # rw-rw-rw- permissions for database file
+    logging.info(f"Created database file at {db_file} with permissions 666") 
