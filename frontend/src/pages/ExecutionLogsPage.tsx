@@ -31,7 +31,10 @@ export function ExecutionLogsPage() {
   const selectedStatus = searchParams.get('status') || '';
 
   const combobox = useCombobox({
-    onDropdownClose: () => combobox.resetSelectedOption(),
+    onDropdownClose: () => {
+      combobox.resetSelectedOption();
+      setScriptSearch(selectedScript); // Reset search to selected value
+    },
   });
 
   const filteredScripts = scripts
@@ -146,50 +149,52 @@ export function ExecutionLogsPage() {
       <Stack gap="lg">
         <Title>Execution Logs</Title>
 
-        <Group>
-          <Combobox
-            store={combobox}
-            onOptionSubmit={(value) => {
-              handleScriptChange(value);
-              combobox.closeDropdown();
-            }}
-          >
-            <Combobox.Target>
-              <InputBase
-                label="Filter by Script"
-                placeholder="Search or select script"
-                value={scriptSearch}
-                onChange={(event) => {
-                  setScriptSearch(event.currentTarget.value);
-                  combobox.openDropdown();
-                }}
-                onClick={() => combobox.openDropdown()}
-                rightSection={<Combobox.Chevron />}
-                rightSectionPointerEvents="none"
-                style={{ minWidth: '300px' }}
-              />
-            </Combobox.Target>
+        <Group align="flex-start">
+          <Box style={{ flex: 1, maxWidth: 300 }}>
+            <Combobox
+              store={combobox}
+              onOptionSubmit={(value) => {
+                handleScriptChange(value);
+                combobox.closeDropdown();
+              }}
+            >
+              <Combobox.Target>
+                <InputBase
+                  label="Filter by Script"
+                  placeholder="Search or select script"
+                  value={scriptSearch}
+                  onChange={(event) => {
+                    setScriptSearch(event.currentTarget.value);
+                    combobox.openDropdown();
+                  }}
+                  onClick={() => combobox.openDropdown()}
+                  rightSection={<Combobox.Chevron />}
+                  rightSectionPointerEvents="none"
+                />
+              </Combobox.Target>
 
-            <Combobox.Dropdown>
-              <Combobox.Options>
-                <Combobox.Option value="">All Scripts</Combobox.Option>
-                {filteredScripts.map((script) => (
-                  <Combobox.Option key={script.value} value={script.value}>
-                    {script.label}
-                  </Combobox.Option>
-                ))}
-              </Combobox.Options>
-            </Combobox.Dropdown>
-          </Combobox>
+              <Combobox.Dropdown>
+                <Combobox.Options>
+                  <Combobox.Option value="">All Scripts</Combobox.Option>
+                  {filteredScripts.map((script) => (
+                    <Combobox.Option key={script.value} value={script.value}>
+                      {script.label}
+                    </Combobox.Option>
+                  ))}
+                </Combobox.Options>
+              </Combobox.Dropdown>
+            </Combobox>
+          </Box>
 
-          <Select
-            label="Filter by Status"
-            placeholder="All Statuses"
-            data={statusOptions}
-            value={selectedStatus}
-            onChange={handleStatusChange}
-            style={{ minWidth: '200px' }}
-          />
+          <Box style={{ flex: 1, maxWidth: 300 }}>
+            <Select
+              label="Filter by Status"
+              placeholder="All Statuses"
+              data={statusOptions}
+              value={selectedStatus}
+              onChange={handleStatusChange}
+            />
+          </Box>
         </Group>
 
         <div style={{ 
