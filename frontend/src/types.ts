@@ -47,4 +47,5 @@ export interface Script {
   tags: Tag[];
   dependencies: Dependency[];
   schedules: Schedule[];
+  last_execution?: Execution;
 } 

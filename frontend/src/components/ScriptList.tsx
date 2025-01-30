@@ -10,12 +10,20 @@ import {
   LoadingOverlay,
   Box,
   Title,
+  Switch,
+  Tooltip,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { Link } from 'react-router-dom';
-import { IconPlus, IconSearch } from '@tabler/icons-react';
+import { 
+  IconPlus, 
+  IconSearch, 
+  IconAlertTriangle,
+  IconCheck,
+  IconX,
+} from '@tabler/icons-react';
 import { scriptsApi } from '../api/client';
-import { Script } from '../types';
+import { Script, Dependency, ExecutionStatus } from '../types';
 
 export function ScriptList() {
   const [scripts, setScripts] = useState<Script[]>([]);
@@ -60,6 +68,69 @@ export function ScriptList() {
     );
   });
 
+  const isToggleDisabled = (script: Script) => {
+    if (script.is_active) return false; // Can always disable
+    return (
+      !script.schedules.length || // No schedules
+      script.dependencies.some(dep => !dep.installed_version) // Uninstalled deps
+    );
+  };
+
+  const getToggleTooltip = (script: Script) => {
+    if (script.is_active) return "Click to disable scheduled executions";
+    if (!script.schedules.length) return "Cannot enable: No schedules defined";
+    if (script.dependencies.some(dep => !dep.installed_version)) {
+      return "Cannot enable: Some dependencies are not installed";
+    }
+    return "Click to enable scheduled executions";
+  };
+
+  const handleToggleActive = async (script: Script) => {
+    try {
+      // Check if we can enable the script
+      if (!script.is_active) {
+        // Can't enable if no schedules
+        if (!script.schedules.length) {
+          notifications.show({
+            title: 'Error',
+            message: 'Cannot enable script without any schedules',
+            color: 'red',
+          });
+          return;
+        }
+        
+        // Can't enable if dependencies not installed
+        const hasUninstalledDeps = script.dependencies.some(
+          (dep: Dependency) => !dep.installed_version
+        );
+        if (hasUninstalledDeps) {
+          notifications.show({
+            title: 'Error',
+            message: 'Cannot enable script with uninstalled dependencies',
+            color: 'red',
+          });
+          return;
+        }
+      }
+
+      const newIsActive = !script.is_active;
+      await scriptsApi.update(script.id, { is_active: newIsActive });
+      await loadScripts(false);
+      notifications.show({
+        title: 'Success',
+        message: `Scheduled executions ${newIsActive ? 'enabled' : 'disabled'}`,
+        color: 'green',
+      });
+    } catch (error) {
+      console.error('Failed to toggle script status:', error);
+      notifications.show({
+        title: 'Error',
+        message: 'Failed to update script status',
+        color: 'red',
+      });
+    }
+  };
+
   return (
     <Box p="xl" pos="relative">
       <LoadingOverlay visible={isLoading} />
@@ -93,8 +164,6 @@ export function ScriptList() {
             <Card
               key={script.id}
               withBorder
-              component={Link}
-              to={`/scripts/${script.id}`}
               style={{ 
                 textDecoration: 'none', 
                 color: 'inherit',
@@ -107,12 +176,44 @@ export function ScriptList() {
               }}
             >
               <Stack gap="xs">
-                <Text fw={500} size="lg" lineClamp={1}>
-                  {script.name}
-                </Text>
+                <Group justify="space-between" align="flex-start">
+                  <Text 
+                    component={Link}
+                    to={`/scripts/${script.id}`}
+                    fw={500} 
+                    size="lg" 
+                    lineClamp={1}
+                    style={{ 
+                      textDecoration: 'none',
+                      color: 'inherit',
+                      flex: 1
+                    }}
+                  >
+                    {script.name}
+                  </Text>
+                  <Tooltip label={getToggleTooltip(script)}>
+                    <Switch
+                      checked={script.is_active}
+                      onChange={() => handleToggleActive(script)}
+                      disabled={isToggleDisabled(script)}
+                      size="md"
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  </Tooltip>
+                </Group>
                 
                 {script.description && (
-                  <Text size="sm" c="dimmed" lineClamp={2}>
+                  <Text 
+                    component={Link}
+                    to={`/scripts/${script.id}`}
+                    size="sm" 
+                    c="dimmed" 
+                    lineClamp={2}
+                    style={{ 
+                      textDecoration: 'none',
+                      color: 'inherit'
+                    }}
+                  >
                     {script.description}
                   </Text>
                 )}
@@ -133,16 +234,34 @@ export function ScriptList() {
 
                 <Group mt="auto" pt="sm" style={{ borderTop: '1px solid #2C2E33' }}>
                   <Group gap="xs">
-                    <Badge
-                      size="sm"
-                      color={script.is_active ? 'green' : 'gray'}
-                    >
-                      {script.is_active ? 'Active' : 'Inactive'}
-                    </Badge>
+                    {script.dependencies.some(dep => !dep.installed_version) && (
+                      <Tooltip label="Some dependencies are not installed">
+                        <Badge size="sm" color="yellow" leftSection={
+                          <IconAlertTriangle size={12} style={{ marginRight: 4 }} />
+                        }>
+                          Dependencies
+                        </Badge>
+                      </Tooltip>
+                    )}
                     {script.schedules.length > 0 && (
                       <Badge size="sm" color="blue">
                         {script.schedules.length} Schedule{script.schedules.length !== 1 ? 's' : ''}
                       </Badge>
+                    )}
+                    {script.last_execution && (
+                      <Tooltip label={`Last execution: ${script.last_execution.status}`}>
+                        <Badge 
+                          size="sm" 
+                          color={script.last_execution.status === ExecutionStatus.SUCCESS ? 'green' : 'red'}
+                          leftSection={
+                            script.last_execution.status === ExecutionStatus.SUCCESS
+                              ? <IconCheck size={12} />
+                              : <IconX size={12} />
+                          }
+                        >
+                          Last Run
+                        </Badge>
+                      </Tooltip>
                     )}
                   </Group>
                 </Group>
