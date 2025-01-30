@@ -454,6 +454,23 @@ async def execute_script(
     if not script:
         raise HTTPException(status_code=404, detail="Script not found")
 
+    # Check if there are any running executions for this script
+    result = await session.execute(
+        select(Execution)
+        .where(
+            Execution.script_id == script_id,
+            Execution.status == ExecutionStatus.RUNNING
+        )
+    )
+    running_execution = result.scalar_one_or_none()
+    
+    if running_execution:
+        # Mark old execution as failed
+        running_execution.status = ExecutionStatus.FAILURE
+        running_execution.completed_at = datetime.now(timezone.utc)
+        running_execution.error_message = "Execution interrupted by new execution request"
+        await session.commit()
+
     # Create execution record
     execution: Execution = Execution(
         script_id=script_id,
