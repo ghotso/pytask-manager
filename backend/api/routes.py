@@ -24,6 +24,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+@router.get("/health")
+async def health_check():
+    """Health check endpoint."""
+    return {"status": "healthy"}
+
+
 class DependencyUninstall(BaseModel):
     package_name: str
 
@@ -55,6 +61,14 @@ async def create_script(
     try:
         logger.info("Received create script request")
         logger.info(f"Script data: {script_data.model_dump_json(indent=2)}")
+        
+        # Debug: Check directory permissions
+        scripts_dir = os.environ.get("PYTASK_SCRIPTS_DIR", "/app/scripts")
+        logger.info(f"Checking scripts directory: {scripts_dir}")
+        logger.info(f"Directory exists: {os.path.exists(scripts_dir)}")
+        logger.info(f"Directory permissions: {oct(os.stat(scripts_dir).st_mode)[-3:]}")
+        logger.info(f"Current user: {os.getuid()}:{os.getgid()}")
+        logger.info(f"Directory owner: {os.stat(scripts_dir).st_uid}:{os.stat(scripts_dir).st_gid}")
         
         # Check if script with same name exists
         existing_script = await session.execute(

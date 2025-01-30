@@ -34,10 +34,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Create non-root user with nobody's UID (99) and use existing users group (100)
 RUN useradd -u 99 -g 100 -m -r -s /bin/bash pytask
 
-# Create necessary directories and set permissions
-RUN mkdir -p /app/data /app/scripts /app/logs \
-    && chown -R pytask:users /app \
-    && chmod 777 /app/data /app/scripts /app/logs
+# Create necessary directories with proper ownership and permissions
+RUN mkdir -p /app/data /app/scripts /app/logs && \
+    chown -R pytask:users /app && \
+    chmod -R 755 /app && \
+    chmod 777 /app/data /app/scripts /app/logs
 
 # Copy backend requirements and install dependencies
 COPY backend/requirements.txt ./
@@ -56,7 +57,7 @@ ENV PYTHONPATH=/app
 ENV PYTASK_DATABASE_URL=sqlite+aiosqlite:///data/data.db
 ENV PYTASK_SCRIPTS_DIR=/app/scripts
 ENV PYTASK_LOGS_DIR=/app/logs
-ENV PYTASK_DEBUG=false
+ENV PYTASK_DEBUG=true
 
 # Expose port
 EXPOSE 8000
@@ -65,10 +66,12 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8000/api/health || exit 1
 
-# Ensure all files are owned by pytask user and are accessible
+# Final permission check and fix
 RUN chown -R pytask:users /app && \
     chmod -R 755 /app && \
-    chmod 777 /app/data /app/scripts /app/logs
+    chmod 777 /app/data /app/scripts /app/logs && \
+    ls -la /app/scripts && \
+    id pytask
 
 # Switch to non-root user
 USER pytask
