@@ -41,6 +41,30 @@ export function CodeEditor({ value, onChange }: CodeEditorProps): ReactElement {
     editor.onDidContentSizeChange(() => {
       updateEditorHeight(editor);
     });
+
+    // Add wheel event listener to handle scrolling
+    const editorDomNode = editor.getDomNode();
+    if (editorDomNode) {
+      editorDomNode.addEventListener('wheel', handleWheel, { passive: false });
+    }
+  };
+
+  const handleWheel = (e: WheelEvent) => {
+    const editor = editorRef.current;
+    if (!editor) return;
+
+    const editorScrollHeight = editor.getScrollHeight();
+    const editorScrollTop = editor.getScrollTop();
+
+    // If editor is at top and scrolling up, or at bottom and scrolling down,
+    // allow the page to scroll
+    if ((editorScrollTop <= 0 && e.deltaY < 0) || 
+        (editorScrollTop >= editorScrollHeight - editor.getLayoutInfo().height && e.deltaY > 0)) {
+      return;
+    }
+
+    // Otherwise, prevent page scroll and handle editor scroll
+    e.stopPropagation();
   };
 
   const updateEditorHeight = (editor: monaco.editor.IStandaloneCodeEditor) => {
@@ -68,6 +92,19 @@ export function CodeEditor({ value, onChange }: CodeEditorProps): ReactElement {
     }
   }, [value]);
 
+  // Cleanup wheel event listener
+  useEffect(() => {
+    return () => {
+      const editor = editorRef.current;
+      if (editor) {
+        const editorDomNode = editor.getDomNode();
+        if (editorDomNode) {
+          editorDomNode.removeEventListener('wheel', handleWheel);
+        }
+      }
+    };
+  }, []);
+
   return (
     <Editor
       height="auto"
@@ -86,8 +123,12 @@ export function CodeEditor({ value, onChange }: CodeEditorProps): ReactElement {
         lineHeight: 21,
         padding: { top: 10, bottom: 10 },
         scrollbar: {
-          vertical: 'hidden',
+          vertical: 'visible', // Changed to visible for better UX
           horizontal: 'hidden',
+          useShadows: true,
+          verticalHasArrows: false,
+          horizontalHasArrows: false,
+          verticalScrollbarSize: 10,
         },
         fixedOverflowWidgets: true,
         overviewRulerBorder: false,

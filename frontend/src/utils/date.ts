@@ -14,7 +14,10 @@ export function formatDate(dateString: string): string {
     second: '2-digit',
     hour12: false,
     timeZone: 'Europe/Vienna',
+    timeZoneName: undefined  // Don't show timezone name
   };
 
-  return new Date(dateString).toLocaleString('de-DE', options);
+  // Parse the date string and ensure it's treated as UTC
+  const date = new Date(dateString + 'Z');
+  return date.toLocaleString('de-DE', options);
 } 

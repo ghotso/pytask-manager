@@ -847,13 +847,23 @@ async def _execute_script(
 
         # Execute script and collect output
         output = []
+        last_error = None
         async for line in script_manager.execute(execution_id):
             output.append(line)
+            # Track error messages, particularly the return code error
+            if line.startswith("Error: Script exited with return code"):
+                last_error = line
 
-        # Update execution record with success
-        execution.status = ExecutionStatus.SUCCESS
+        # Update execution record based on success/failure
         execution.completed_at = datetime.now(timezone.utc)
         execution.log_output = "".join(output)
+        
+        if last_error:
+            execution.status = ExecutionStatus.FAILURE
+            execution.error_message = last_error
+        else:
+            execution.status = ExecutionStatus.SUCCESS
+            
         await session.commit()
 
     except Exception as e:
