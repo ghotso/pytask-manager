@@ -50,10 +50,29 @@ const api = axios.create({
   baseURL: API_BASE_URL,
 });
 
+// Add response interceptor for better error handling
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    console.error('API Error:', {
+      url: error.config?.url,
+      method: error.config?.method,
+      status: error.response?.status,
+      data: error.response?.data,
+    });
+    return Promise.reject(error);
+  }
+);
+
 export const scriptsApi = {
   list: async () => {
-    const response = await api.get<Script[]>('/api/scripts');
-    return response.data;
+    try {
+      const response = await api.get<Script[]>('/api/scripts');
+      return response.data;
+    } catch (error) {
+      console.error('Failed to list scripts:', error);
+      return [];  // Return empty array on error
+    }
   },
 
   get: async (id: number) => {
