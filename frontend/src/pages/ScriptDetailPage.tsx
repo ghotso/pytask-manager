@@ -12,7 +12,6 @@ import {
   Badge,
   Switch,
   Table,
-  Modal,
 } from '@mantine/core';
 import { useParams, useNavigate } from 'react-router-dom';
 import { notifications } from '@mantine/notifications';
@@ -989,28 +988,62 @@ export function ScriptDetailPage() {
         </div>
       </Stack>
 
-      <Modal 
-        opened={isDeleteModalOpen} 
-        onClose={() => setIsDeleteModalOpen(false)}
-        title="Delete Script"
-        centered
-      >
-        <Stack>
-          <Text>Are you sure you want to delete this script? This action cannot be undone.</Text>
-          <Group justify="flex-end">
-            <Button variant="default" onClick={() => setIsDeleteModalOpen(false)}>
-              Cancel
-            </Button>
-            <Button 
-              color="red" 
-              onClick={handleDelete}
-              loading={isDeleting}
-            >
-              Delete
-            </Button>
-          </Group>
-        </Stack>
-      </Modal>
+      {isDeleteModalOpen && (
+        <>
+          <Box
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0, 0, 0, 0.85)',
+              backdropFilter: 'blur(3px)',
+              zIndex: 999
+            }}
+            onClick={() => !isDeleting && setIsDeleteModalOpen(false)}
+          />
+          <Box
+            style={{
+              position: 'fixed',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+              width: '400px',
+              maxWidth: '90vw',
+              backgroundColor: '#1A1B1E',
+              border: '1px solid #2C2E33',
+              borderRadius: '8px',
+              zIndex: 1000
+            }}
+          >
+            <Box p="md" style={{ borderBottom: '1px solid #2C2E33', backgroundColor: '#141517' }}>
+              <Text size="lg" fw={500}>Delete Script</Text>
+            </Box>
+            
+            <Stack p="md">
+              <Text>Are you sure you want to delete this script? This action cannot be undone.</Text>
+              
+              <Group justify="flex-end" mt="md">
+                <Button 
+                  variant="default" 
+                  onClick={() => !isDeleting && setIsDeleteModalOpen(false)}
+                  disabled={isDeleting}
+                >
+                  Cancel
+                </Button>
+                <Button 
+                  color="red" 
+                  onClick={handleDelete}
+                  loading={isDeleting}
+                >
+                  Delete
+                </Button>
+              </Group>
+            </Stack>
+          </Box>
+        </>
+      )}
 
       <style>
         {`
