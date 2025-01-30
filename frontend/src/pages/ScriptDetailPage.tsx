@@ -280,11 +280,7 @@ export function ScriptDetailPage() {
 
       socket.onmessage = (event) => {
         console.log('Received WebSocket message:', event.data);
-        setExecutionOutput(prev => {
-          console.log('Current output:', prev);
-          console.log('Adding line:', event.data);
-          return [...prev, event.data];
-        });
+        setExecutionOutput(prev => [...prev, event.data]);
       };
 
       socket.onerror = (error) => {
@@ -444,6 +440,14 @@ export function ScriptDetailPage() {
     }
   };
 
+  // Add this useEffect after the handleRun function
+  useEffect(() => {
+    const outputElement = document.querySelector('.execution-output');
+    if (outputElement) {
+      outputElement.scrollTop = outputElement.scrollHeight;
+    }
+  }, [executionOutput]);
+
   if (isLoading) return <LoadingOverlay visible />;
   if (error) return <Text c="red">Error loading script: {error.message}</Text>;
 
@@ -504,16 +508,22 @@ export function ScriptDetailPage() {
             </Box>
 
             <Box p="md" style={{ flex: 1, overflowY: 'auto', maxHeight: 'calc(90vh - 140px)' }}>
-              <Code block style={{ 
+              <Code block className="execution-output" style={{ 
                 whiteSpace: 'pre-wrap', 
-                fontFamily: 'monospace',
-                padding: '1rem',
-                backgroundColor: '#141517',
-                border: '1px solid #2C2E33',
-                borderRadius: '4px',
-                minHeight: '300px'
+                backgroundColor: '#1e1e1e',
+                color: '#d4d4d4',
+                height: '100%',
+                overflowY: 'auto',
               }}>
-                {executionOutput.join('')}
+                {executionOutput.length > 0 ? (
+                  executionOutput.map((line, index) => (
+                    <div key={index}>{line}</div>
+                  ))
+                ) : (
+                  <Text c="dimmed" ta="center">
+                    Click Execute to run the script
+                  </Text>
+                )}
               </Code>
             </Box>
 
