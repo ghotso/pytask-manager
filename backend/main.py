@@ -65,11 +65,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount static files for frontend
-app.mount("/", StaticFiles(directory="static", html=True), name="static")
-
-# Include API routes
+# Include API routes first
 app.include_router(router, prefix="/api")
+
+# Mount static files for frontend
+static_dir = Path("static")
+if static_dir.exists():
+    app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
 # Serve frontend static files in production
 if not settings.debug:
