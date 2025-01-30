@@ -33,6 +33,7 @@ import { scriptsApi } from '../api/client';
 import { Tag, Dependency, Schedule, Execution, ExecutionStatus } from '../types';
 import { WS_BASE_URL } from '../config';
 import axios from 'axios';
+import { formatDate } from '../utils/date';
 
 export function ScriptDetailPage() {
   const { id } = useParams();
@@ -435,7 +436,7 @@ export function ScriptDetailPage() {
         message: 'Script deleted successfully',
         color: 'green',
       });
-      navigate('/scripts');
+      navigate('/');
     } catch (err) {
       handleApiError(err, 'deleting script');
     } finally {
@@ -580,7 +581,7 @@ export function ScriptDetailPage() {
                       {selectedExecution.status.toUpperCase()}
                     </Badge>
                     <Text size="sm" c="dimmed">
-                      {new Date(selectedExecution.started_at).toLocaleString()}
+                      {formatDate(selectedExecution.started_at)}
                     </Text>
                   </>
                 )}
@@ -958,7 +959,7 @@ export function ScriptDetailPage() {
                           <IconX size={18} color="var(--mantine-color-red-filled)" />
                         )}
                         <Text size="sm" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
-                          {new Date(execution.started_at).toLocaleString()}
+                          {formatDate(execution.started_at)}
                         </Text>
                       </Group>
                       <Button 
@@ -997,7 +998,7 @@ export function ScriptDetailPage() {
         <Stack>
           <Text>Are you sure you want to delete this script? This action cannot be undone.</Text>
           <Group justify="flex-end">
-            <Button variant="light" onClick={() => setIsDeleteModalOpen(false)}>
+            <Button variant="default" onClick={() => setIsDeleteModalOpen(false)}>
               Cancel
             </Button>
             <Button 

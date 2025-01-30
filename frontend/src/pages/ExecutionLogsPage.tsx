@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Card, Select, Text, Group, Badge, Box, Code, Stack, Title, Button, Container, Combobox, InputBase, useCombobox } from '@mantine/core';
+import { Card, Select, Text, Group, Badge, Box, Code, Stack, Title, Button, Container, Combobox, InputBase, useCombobox, Modal } from '@mantine/core';
 import { useApi } from '../hooks/useApi';
 import { Script, Execution } from '../types';
 import { useSearchParams } from 'react-router-dom';
@@ -11,6 +11,7 @@ import {
   IconFilter,
 } from '@tabler/icons-react';
 import { ExecutionStatus } from '../types';
+import { formatDate } from '../utils/date';
 
 interface ExtendedExecution extends Execution {
   scriptName: string;
@@ -239,7 +240,7 @@ export function ExecutionLogsPage() {
               </Group>
               
               <Text size="sm" c="dimmed">
-                {new Date(execution.started_at).toLocaleString()}
+                {formatDate(execution.started_at)}
               </Text>
             </Card>
           ))}
@@ -250,8 +251,14 @@ export function ExecutionLogsPage() {
           )}
         </div>
 
-        {isModalOpen && (
-          <>
+        {selectedExecution && (
+          <Modal
+            opened={isModalOpen}
+            onClose={closeLogModal}
+            size="xl"
+            closeOnClickOutside={false}
+            closeOnEscape={false}
+          >
             <Box
               style={{
                 position: 'fixed',
@@ -285,22 +292,18 @@ export function ExecutionLogsPage() {
               <Box p="md" style={{ borderBottom: '1px solid #2C2E33', backgroundColor: '#141517' }}>
                 <Group>
                   <Text size="lg" fw={500}>Execution Logs</Text>
-                  {selectedExecution && (
-                    <>
-                      <Badge
-                        color={
-                          selectedExecution.status === ExecutionStatus.SUCCESS ? 'green' : 
-                          selectedExecution.status === ExecutionStatus.PENDING ? 'yellow' : 
-                          selectedExecution.status === ExecutionStatus.RUNNING ? 'blue' : 'red'
-                        }
-                      >
-                        {selectedExecution.status.toUpperCase()}
-                      </Badge>
-                      <Text size="sm" c="dimmed">
-                        {new Date(selectedExecution.started_at).toLocaleString()}
-                      </Text>
-                    </>
-                  )}
+                  <Badge
+                    color={
+                      selectedExecution.status === ExecutionStatus.SUCCESS ? 'green' : 
+                      selectedExecution.status === ExecutionStatus.PENDING ? 'yellow' : 
+                      selectedExecution.status === ExecutionStatus.RUNNING ? 'blue' : 'red'
+                    }
+                  >
+                    {selectedExecution.status.toUpperCase()}
+                  </Badge>
+                  <Text size="sm" c="dimmed">
+                    {formatDate(selectedExecution.started_at)}
+                  </Text>
                 </Group>
               </Box>
 
@@ -331,7 +334,7 @@ export function ExecutionLogsPage() {
                 </Group>
               </Box>
             </Box>
-          </>
+          </Modal>
         )}
       </Stack>
     </Container>

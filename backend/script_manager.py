@@ -20,10 +20,10 @@ logger = logging.getLogger(__name__)
 class ScriptManager:
     """Manages script execution in isolated environments."""
     
-    def __init__(self, script_id: int, base_dir: str = "scripts"):
+    def __init__(self, script_id: int, base_dir: str | Path | None = None):
         """Initialize script manager."""
         self.script_id = script_id
-        self.base_dir = Path(base_dir).resolve()  # Get absolute path
+        self.base_dir = Path(base_dir if base_dir is not None else settings.scripts_dir).resolve()
         self.script_dir = self.base_dir / str(script_id)
         self.venv_dir = self.script_dir / "venv"
         self.script_path = self.script_dir / "script.py"
@@ -42,12 +42,14 @@ class ScriptManager:
         logger.info(f"Setting up environment for script {self.script_id}")
         
         try:
-            # Create script directory
+            # Create script directory with proper permissions
             self.script_dir.mkdir(parents=True, exist_ok=True)
+            os.chmod(str(self.script_dir), 0o777)  # Ensure directory is writable
             
             # Write script content
             logger.debug(f"Writing script content to {self.script_path}")
             self.script_path.write_text(script_content)
+            os.chmod(str(self.script_path), 0o666)  # Make script readable/writable
             
             # Remove existing venv if it's broken
             if self.venv_dir.exists() and not self.python_path.exists():
