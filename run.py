@@ -27,7 +27,7 @@ if __name__ == "__main__":
         
         # Create alembic.ini configuration
         alembic_cfg = Config()
-        alembic_cfg.set_main_option('script_location', 'migrations')
+        alembic_cfg.set_main_option('script_location', str(root_dir / 'migrations'))
         alembic_cfg.set_main_option('sqlalchemy.url', 
                                    settings.database_url.replace('sqlite+aiosqlite:', 'sqlite:'))
         

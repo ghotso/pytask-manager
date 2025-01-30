@@ -48,8 +48,9 @@ RUN ln -sf /dev/stdout /app/logs/app.log && \
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy backend code
+# Copy backend code and migrations
 COPY backend/ ./backend/
+COPY migrations/ ./migrations/
 COPY run.py ./
 
 # Copy frontend build

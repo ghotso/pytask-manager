@@ -79,8 +79,8 @@ class Execution(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     script_id: Mapped[int] = mapped_column(ForeignKey("scripts.id"))
     schedule_id: Mapped[Optional[int]] = mapped_column(ForeignKey("schedules.id"))
-    started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     status: Mapped[ExecutionStatus] = mapped_column(
         SQLEnum(ExecutionStatus), default=ExecutionStatus.PENDING
     )
@@ -101,7 +101,7 @@ class Schedule(Base):
     script_id: Mapped[int] = mapped_column(ForeignKey("scripts.id"))
     cron_expression: Mapped[str] = mapped_column(String(100))
     description: Mapped[Optional[str]] = mapped_column(String(255))
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     
     # Relationships
     script: Mapped[Script] = relationship(back_populates="schedules")

@@ -1,7 +1,7 @@
 """Remove is_active from schedules
 
 Revision ID: remove_schedule_is_active
-Revises: previous_revision
+Revises: 378ba4f11d45
 Create Date: 2024-01-29 17:30:00.000000
 
 """
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = 'remove_schedule_is_active'
-down_revision: Union[str, None] = None
+down_revision: Union[str, None] = '378ba4f11d45'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
