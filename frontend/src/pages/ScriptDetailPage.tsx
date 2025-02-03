@@ -40,9 +40,10 @@ import { formatDate } from '../utils/date';
 
 export function ScriptDetailPage() {
   const { id } = useParams();
-  const scriptId = Number(id);
-  const { script, isLoading, error, mutate } = useScript(scriptId);
-  const [isSaving, setIsSaving] = useState(false);
+  const navigate = useNavigate();
+  const scriptId = id ? parseInt(id) : 0;
+  
+  // Script data states
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [content, setContent] = useState('');
@@ -51,17 +52,26 @@ export function ScriptDetailPage() {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [executions, setExecutions] = useState<Execution[]>([]);
   const [lastError, setLastError] = useState<string | null>(null);
-  const [executionOutput, setExecutionOutput] = useState<string[]>([]);
-  const [selectedExecution, setSelectedExecution] = useState<Execution | null>(null);
-  const [isLogModalOpen, setIsLogModalOpen] = useState(false);
-  const [logContent, setLogContent] = useState<string>('');
+  
+  // Loading states
   const [isInstallingDeps, setIsInstallingDeps] = useState(false);
-  const [isActive, setIsActive] = useState(true);
-  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const navigate = useNavigate();
-  const [showExecutionModal, setShowExecutionModal] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
+  
+  // Modal states
+  const [showExecutionModal, setShowExecutionModal] = useState(false);
+  const [isLogModalOpen, setIsLogModalOpen] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  
+  // Modal content states
+  const [executionOutput, setExecutionOutput] = useState<string[]>([]);
+  const [logContent, setLogContent] = useState('');
+  const [selectedExecution, setSelectedExecution] = useState<Execution | null>(null);
+
+  // Script data fetching
+  const { script, error: scriptError, mutate, isLoading } = useScript(scriptId);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isActive, setIsActive] = useState(true);
 
   useEffect(() => {
     if (script) {
@@ -273,7 +283,7 @@ export function ScriptDetailPage() {
       setExecutionOutput([]);
       setShowExecutionModal(true);
 
-      console.log('Connecting to WebSocket...');
+      console.log('Opening execution modal and connecting to WebSocket...');
       const ws = new WebSocket(`${WS_BASE_URL}/api/scripts/${scriptId}/ws`);
       
       ws.onopen = () => {
@@ -316,12 +326,14 @@ export function ScriptDetailPage() {
       };
 
     } catch (err) {
+      console.error('Error in handleRun:', err);
       handleApiError(err, 'starting script execution');
       setIsExecuting(false);
     }
   };
 
   const closeExecutionModal = () => {
+    console.log('Closing execution modal, isExecuting:', isExecuting);
     if (!isExecuting) {
       setShowExecutionModal(false);
       setExecutionOutput([]);
@@ -330,7 +342,7 @@ export function ScriptDetailPage() {
 
   const handleViewLogs = async (execution: Execution) => {
     try {
-      console.log('Viewing logs for execution:', execution);
+      console.log('Opening log modal for execution:', execution);
       setSelectedExecution(execution);
       setLogContent('Loading logs...');
       setIsLogModalOpen(true);
@@ -357,7 +369,7 @@ export function ScriptDetailPage() {
   };
 
   const closeLogModal = () => {
-    console.log('closeLogModal called');
+    console.log('Closing log modal');
     setIsLogModalOpen(false);
     setSelectedExecution(null);
     setLogContent('');
@@ -467,7 +479,7 @@ export function ScriptDetailPage() {
   }, [executionOutput]);
 
   if (isLoading) return <LoadingOverlay visible />;
-  if (error) return <Text c="red">Error loading script: {error.message}</Text>;
+  if (scriptError) return <Text c="red">Error loading script: {scriptError.message}</Text>;
 
   return (
     <Box p="xl" pos="relative">
