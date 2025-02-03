@@ -284,23 +284,28 @@ export function ScriptDetailPage() {
       setShowExecutionModal(true);
 
       console.log('Opening execution modal and connecting to WebSocket...');
-      const ws = new WebSocket(`${WS_BASE_URL}/api/scripts/${scriptId}/ws`);
+      const wsUrl = `${WS_BASE_URL}/api/scripts/${scriptId}/ws`;
+      console.log('WebSocket URL:', wsUrl);
+      
+      const ws = new WebSocket(wsUrl);
       
       ws.onopen = () => {
         console.log('WebSocket connected, ready for live output');
+        setExecutionOutput(prev => [...prev, 'Connected to execution stream...']);
       };
       
       ws.onmessage = (event) => {
-        console.log('Received log line:', event.data);
-        // Immediately update UI with new log line
         const logLine = event.data.replace(/^ERROR: /, '');
+        console.log('Received log line:', logLine);
+        
+        // Update state immediately with the new line
         setExecutionOutput(prev => {
           const newOutput = [...prev, logLine];
-          console.log('Updated output length:', newOutput.length);
+          console.log('Current output lines:', newOutput.length);
           return newOutput;
         });
-        
-        // Force scroll to bottom without delay
+
+        // Scroll to bottom on next render
         requestAnimationFrame(() => {
           const outputElement = document.querySelector('.execution-output');
           if (outputElement) {
@@ -311,6 +316,7 @@ export function ScriptDetailPage() {
 
       ws.onerror = (error) => {
         console.error('WebSocket error:', error);
+        setExecutionOutput(prev => [...prev, 'Error: Failed to connect to execution stream']);
         notifications.show({
           title: 'Error',
           message: 'Failed to connect to execution stream',
@@ -321,12 +327,14 @@ export function ScriptDetailPage() {
 
       ws.onclose = () => {
         console.log('WebSocket closed, execution finished');
+        setExecutionOutput(prev => [...prev, 'Execution finished.']);
         setIsExecuting(false);
         loadExecutions();  // Refresh execution list
       };
 
     } catch (err) {
       console.error('Error in handleRun:', err);
+      setExecutionOutput(prev => [...prev, `Error: ${err instanceof Error ? err.message : 'Unknown error'}`]);
       handleApiError(err, 'starting script execution');
       setIsExecuting(false);
     }
@@ -906,6 +914,7 @@ export function ScriptDetailPage() {
                     overflowY: 'auto',
                     backgroundColor: '#1A1B1E',
                     fontFamily: 'monospace',
+                    fontSize: '13px',
                   }}
                 >
                   {executionOutput.length > 0 ? (
@@ -916,6 +925,7 @@ export function ScriptDetailPage() {
                           whiteSpace: 'pre-wrap',
                           color: '#d4d4d4',
                           padding: '2px 0',
+                          fontSize: 'inherit',
                         }}
                       >
                         {line}
@@ -997,6 +1007,7 @@ export function ScriptDetailPage() {
                     overflowY: 'auto',
                     backgroundColor: '#1A1B1E',
                     fontFamily: 'monospace',
+                    fontSize: '13px',
                   }}
                 >
                   {logContent ? (
@@ -1007,6 +1018,7 @@ export function ScriptDetailPage() {
                           whiteSpace: 'pre-wrap',
                           color: '#d4d4d4',
                           padding: '2px 0',
+                          fontSize: 'inherit',
                         }}
                       >
                         {line.replace(/^ERROR: /, '')}

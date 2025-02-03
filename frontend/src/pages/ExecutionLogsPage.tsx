@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Card, Select, Text, Group, Badge, Box, Code, Stack, Title, Button, Container, Combobox, InputBase, useCombobox } from '@mantine/core';
+import { Card, Select, Text, Group, Badge, Box, Stack, Title, Container, Combobox, InputBase, useCombobox, Portal, Paper, ActionIcon } from '@mantine/core';
 import { useApi } from '../hooks/useApi';
 import { Script, Execution } from '../types';
 import { useSearchParams } from 'react-router-dom';
@@ -26,6 +26,7 @@ export function ExecutionLogsPage() {
   const [logContent, setLogContent] = useState<string>('');
   const [scriptSearch, setScriptSearch] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const [isLogModalOpen, setIsLogModalOpen] = useState(false);
 
   const selectedScript = searchParams.get('script') || '';
   const selectedStatus = searchParams.get('status') || '';
@@ -138,191 +139,205 @@ export function ExecutionLogsPage() {
     setSearchParams(newParams);
   };
 
+  const openLogModal = (content: string) => {
+    setLogContent(content);
+    setIsLogModalOpen(true);
+  };
+
+  const closeLogModal = () => {
+    setLogContent('');
+    setIsLogModalOpen(false);
+  };
+
   return (
-    <Container size="xl">
-      <Stack gap="lg">
-        <Title>Execution Logs</Title>
+    <Box p="xl">
+      <Container size="xl">
+        <Stack gap="lg">
+          <Title>Execution Logs</Title>
 
-        <Group align="flex-start">
-          <Box style={{ flex: 1, maxWidth: 300 }}>
-            <Combobox
-              store={combobox}
-              onOptionSubmit={(value) => {
-                handleScriptChange(value);
-                combobox.closeDropdown();
-              }}
-            >
-              <Combobox.Target>
-                <InputBase
-                  label="Filter by Script"
-                  placeholder="Search or select script"
-                  value={scriptSearch}
-                  onChange={(event) => {
-                    setScriptSearch(event.currentTarget.value);
-                    combobox.openDropdown();
-                  }}
-                  onClick={() => combobox.openDropdown()}
-                  rightSection={<Combobox.Chevron />}
-                  rightSectionPointerEvents="none"
-                />
-              </Combobox.Target>
+          <Group align="flex-start">
+            <Box style={{ flex: 1, maxWidth: 300 }}>
+              <Combobox
+                store={combobox}
+                onOptionSubmit={(value) => {
+                  handleScriptChange(value);
+                  combobox.closeDropdown();
+                }}
+              >
+                <Combobox.Target>
+                  <InputBase
+                    label="Filter by Script"
+                    placeholder="Search or select script"
+                    value={scriptSearch}
+                    onChange={(event) => {
+                      setScriptSearch(event.currentTarget.value);
+                      combobox.openDropdown();
+                    }}
+                    onClick={() => combobox.openDropdown()}
+                    rightSection={<Combobox.Chevron />}
+                    rightSectionPointerEvents="none"
+                  />
+                </Combobox.Target>
 
-              <Combobox.Dropdown>
-                <Combobox.Options>
-                  <Combobox.Option value="">All Scripts</Combobox.Option>
-                  {filteredScripts.map((script) => (
-                    <Combobox.Option key={script.value} value={script.value}>
-                      {script.label}
-                    </Combobox.Option>
-                  ))}
-                </Combobox.Options>
-              </Combobox.Dropdown>
-            </Combobox>
-          </Box>
+                <Combobox.Dropdown>
+                  <Combobox.Options>
+                    <Combobox.Option value="">All Scripts</Combobox.Option>
+                    {filteredScripts.map((script) => (
+                      <Combobox.Option key={script.value} value={script.value}>
+                        {script.label}
+                      </Combobox.Option>
+                    ))}
+                  </Combobox.Options>
+                </Combobox.Dropdown>
+              </Combobox>
+            </Box>
 
-          <Box style={{ flex: 1, maxWidth: 300 }}>
-            <Select
-              label="Filter by Status"
-              placeholder="All Statuses"
-              data={statusOptions}
-              value={selectedStatus}
-              onChange={handleStatusChange}
-            />
-          </Box>
-        </Group>
+            <Box style={{ flex: 1, maxWidth: 300 }}>
+              <Select
+                label="Filter by Status"
+                placeholder="All Statuses"
+                data={statusOptions}
+                value={selectedStatus}
+                onChange={handleStatusChange}
+              />
+            </Box>
+          </Group>
 
-        <div style={{ 
-          display: 'grid', 
-          gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', 
-          gap: '1rem' 
-        }}>
-          {executions.map((execution) => (
-            <Card 
-              key={execution.id} 
-              shadow="sm" 
-              padding="lg" 
-              radius="md" 
-              withBorder 
-              style={{ cursor: 'pointer' }}
-              onClick={() => {
-                setLogContent(execution.log_output || '');
-                setSelectedExecution(execution);
-              }}
-            >
-              <Group justify="space-between" mb="xs">
-                <Text fw={500}>{execution.scriptName}</Text>
-                {execution.status === ExecutionStatus.SUCCESS ? (
-                  <IconCheck size={18} color="var(--mantine-color-green-filled)" />
-                ) : execution.status === ExecutionStatus.RUNNING ? (
-                  <IconLoader2 size={18} className="rotating" color="var(--mantine-color-blue-filled)" />
-                ) : execution.status === ExecutionStatus.PENDING ? (
-                  <IconClock size={18} color="var(--mantine-color-yellow-filled)" />
-                ) : (
-                  <IconX size={18} color="var(--mantine-color-red-filled)" />
-                )}
-                <Badge
-                  color={
-                    execution.status === ExecutionStatus.SUCCESS ? 'green' : 
-                    execution.status === ExecutionStatus.PENDING ? 'yellow' : 
-                    execution.status === ExecutionStatus.RUNNING ? 'blue' : 'red'
-                  }
-                >
-                  {execution.status.toUpperCase()}
-                </Badge>
-              </Group>
-              
-              <Text size="sm" c="dimmed">
-                {formatDate(execution.started_at)}
-              </Text>
-            </Card>
-          ))}
-          {!isLoading && executions.length === 0 && (
-            <Text c="dimmed" ta="center" style={{ gridColumn: '1 / -1', padding: '2rem' }}>
-              No executions found
-            </Text>
-          )}
-        </div>
-
-        {selectedExecution && (
-          <>
-            <Box
-              style={{
-                position: 'fixed',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                backgroundColor: 'rgba(0, 0, 0, 0.85)',
-                backdropFilter: 'blur(3px)',
-                zIndex: 999
-              }}
-              onClick={() => setSelectedExecution(null)}
-            />
-            <Box
-              style={{
-                position: 'fixed',
-                top: '50%',
-                left: '50%',
-                transform: 'translate(-50%, -50%)',
-                width: '800px',
-                maxWidth: '90vw',
-                maxHeight: '90vh',
-                backgroundColor: '#1A1B1E',
-                border: '1px solid #2C2E33',
-                borderRadius: '8px',
-                zIndex: 1000,
-                display: 'flex',
-                flexDirection: 'column'
-              }}
-            >
-              <Box p="md" style={{ borderBottom: '1px solid #2C2E33', backgroundColor: '#141517' }}>
-                <Group>
-                  <Text size="lg" fw={500}>Execution Logs</Text>
+          <div style={{ 
+            display: 'grid', 
+            gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', 
+            gap: '1rem' 
+          }}>
+            {executions.map((execution) => (
+              <Card 
+                key={execution.id} 
+                shadow="sm" 
+                padding="lg" 
+                radius="md" 
+                withBorder 
+                style={{ cursor: 'pointer' }}
+                onClick={() => {
+                  openLogModal(execution.log_output || '');
+                  setSelectedExecution(execution);
+                }}
+              >
+                <Group justify="space-between" mb="xs">
+                  <Text fw={500}>{execution.scriptName}</Text>
+                  {execution.status === ExecutionStatus.SUCCESS ? (
+                    <IconCheck size={18} color="var(--mantine-color-green-filled)" />
+                  ) : execution.status === ExecutionStatus.RUNNING ? (
+                    <IconLoader2 size={18} className="rotating" color="var(--mantine-color-blue-filled)" />
+                  ) : execution.status === ExecutionStatus.PENDING ? (
+                    <IconClock size={18} color="var(--mantine-color-yellow-filled)" />
+                  ) : (
+                    <IconX size={18} color="var(--mantine-color-red-filled)" />
+                  )}
                   <Badge
                     color={
-                      selectedExecution.status === ExecutionStatus.SUCCESS ? 'green' : 
-                      selectedExecution.status === ExecutionStatus.PENDING ? 'yellow' : 
-                      selectedExecution.status === ExecutionStatus.RUNNING ? 'blue' : 'red'
+                      execution.status === ExecutionStatus.SUCCESS ? 'green' : 
+                      execution.status === ExecutionStatus.PENDING ? 'yellow' : 
+                      execution.status === ExecutionStatus.RUNNING ? 'blue' : 'red'
                     }
                   >
-                    {selectedExecution.status.toUpperCase()}
+                    {execution.status.toUpperCase()}
                   </Badge>
-                  <Text size="sm" c="dimmed">
-                    {formatDate(selectedExecution.started_at)}
-                  </Text>
                 </Group>
-              </Box>
+                
+                <Text size="sm" c="dimmed">
+                  {formatDate(execution.started_at)}
+                </Text>
+              </Card>
+            ))}
+            {!isLoading && executions.length === 0 && (
+              <Text c="dimmed" ta="center" style={{ gridColumn: '1 / -1', padding: '2rem' }}>
+                No executions found
+              </Text>
+            )}
+          </div>
+        </Stack>
+      </Container>
 
-              <Box p="md" style={{ flex: 1, overflowY: 'auto', maxHeight: 'calc(90vh - 140px)' }}>
-                {selectedExecution?.error_message && (
-                  <Text c="red" size="sm" mb="md">
-                    Error: {selectedExecution.error_message}
-                  </Text>
-                )}
-
-                <Code block style={{ 
-                  whiteSpace: 'pre-wrap', 
-                  fontFamily: 'monospace',
-                  padding: '1rem',
-                  backgroundColor: '#141517',
-                  border: '1px solid #2C2E33',
-                  borderRadius: '4px'
-                }}>
-                  {logContent || 'No logs available'}
-                </Code>
-              </Box>
-
-              <Box p="md" style={{ borderTop: '1px solid #2C2E33', backgroundColor: '#141517' }}>
-                <Group justify="flex-end">
-                  <Button onClick={() => setSelectedExecution(null)} variant="filled" color="gray">
-                    Close
-                  </Button>
+      {/* Log Modal */}
+      {isLogModalOpen && (
+        <Portal>
+          <div
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0, 0, 0, 0.75)',
+              zIndex: 1000,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Paper
+              style={{
+                width: '90%',
+                maxWidth: '1000px',
+                maxHeight: '90vh',
+                margin: '20px',
+                position: 'relative',
+              }}
+              p="md"
+            >
+              <Stack>
+                <Group justify="space-between" mb="md">
+                  <Title order={3}>
+                    Execution Log
+                    {selectedExecution?.started_at && (
+                      <Text size="sm" c="dimmed" mt={4}>
+                        {formatDate(selectedExecution.started_at)}
+                      </Text>
+                    )}
+                  </Title>
+                  <ActionIcon 
+                    onClick={closeLogModal}
+                    variant="subtle"
+                  >
+                    ✕
+                  </ActionIcon>
                 </Group>
-              </Box>
-            </Box>
-          </>
-        )}
-      </Stack>
-    </Container>
+
+                <Paper
+                  withBorder
+                  p="md"
+                  style={{
+                    height: '500px',
+                    overflowY: 'auto',
+                    backgroundColor: '#1A1B1E',
+                    fontFamily: 'monospace',
+                    fontSize: '13px',
+                  }}
+                >
+                  {logContent ? (
+                    logContent.split('\n').map((line, index) => (
+                      <Text
+                        key={index}
+                        style={{
+                          whiteSpace: 'pre-wrap',
+                          color: '#d4d4d4',
+                          padding: '2px 0',
+                          fontSize: 'inherit',
+                        }}
+                      >
+                        {line.replace(/^ERROR: /, '')}
+                      </Text>
+                    ))
+                  ) : (
+                    <Text c="dimmed" ta="center">
+                      No logs available
+                    </Text>
+                  )}
+                </Paper>
+              </Stack>
+            </Paper>
+          </div>
+        </Portal>
+      )}
+    </Box>
   );
 } 
