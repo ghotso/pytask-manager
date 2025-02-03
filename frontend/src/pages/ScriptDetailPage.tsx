@@ -12,8 +12,10 @@ import {
   Badge,
   Switch,
   Table,
-  Modal,
   Paper,
+  Portal,
+  ActionIcon,
+  Title,
 } from '@mantine/core';
 import { useParams, useNavigate } from 'react-router-dom';
 import { notifications } from '@mantine/notifications';
@@ -264,41 +266,59 @@ export function ScriptDetailPage() {
   }, [scriptId]);
 
   const handleRun = async () => {
-    if (!script?.id) return;
+    if (!scriptId) return;
 
-    setIsExecuting(true);
-    setExecutionOutput([]);
-    setShowExecutionModal(true);
+    try {
+      setIsExecuting(true);
+      setExecutionOutput([]);
+      setShowExecutionModal(true);
 
-    const ws = new WebSocket(`${WS_BASE_URL}/api/scripts/${script.id}/ws`);
+      console.log('Connecting to WebSocket...');
+      const ws = new WebSocket(`${WS_BASE_URL}/api/scripts/${scriptId}/ws`);
+      
+      ws.onopen = () => {
+        console.log('WebSocket connected, ready for live output');
+      };
+      
+      ws.onmessage = (event) => {
+        console.log('Received log line:', event.data);
+        // Immediately update UI with new log line
+        const logLine = event.data.replace(/^ERROR: /, '');
+        setExecutionOutput(prev => {
+          const newOutput = [...prev, logLine];
+          console.log('Updated output length:', newOutput.length);
+          return newOutput;
+        });
+        
+        // Force scroll to bottom without delay
+        requestAnimationFrame(() => {
+          const outputElement = document.querySelector('.execution-output');
+          if (outputElement) {
+            outputElement.scrollTop = outputElement.scrollHeight;
+          }
+        });
+      };
 
-    ws.onopen = () => {
-      console.log('WebSocket connected');
-    };
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        notifications.show({
+          title: 'Error',
+          message: 'Failed to connect to execution stream',
+          color: 'red',
+        });
+        setIsExecuting(false);
+      };
 
-    ws.onmessage = (event) => {
-      console.log('Received message:', event.data);
-      // Remove ERROR: prefix if present and add to output
-      const logLine = event.data.replace(/^ERROR: /, '');
-      setExecutionOutput(prev => [...prev, logLine]);
-      // Force scroll to bottom immediately
-      const outputElement = document.querySelector('.execution-output');
-      if (outputElement) {
-        outputElement.scrollTop = outputElement.scrollHeight;
-      }
-    };
+      ws.onclose = () => {
+        console.log('WebSocket closed, execution finished');
+        setIsExecuting(false);
+        loadExecutions();  // Refresh execution list
+      };
 
-    ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
-      handleApiError(error, 'execute script');
+    } catch (err) {
+      handleApiError(err, 'starting script execution');
       setIsExecuting(false);
-    };
-
-    ws.onclose = () => {
-      console.log('WebSocket closed');
-      setIsExecuting(false);
-      loadExecutions();
-    };
+    }
   };
 
   const closeExecutionModal = () => {
@@ -310,28 +330,28 @@ export function ScriptDetailPage() {
 
   const handleViewLogs = async (execution: Execution) => {
     try {
-      console.log('handleViewLogs called for execution:', execution);
-      setLogContent('Loading logs...');
+      console.log('Viewing logs for execution:', execution);
       setSelectedExecution(execution);
+      setLogContent('Loading logs...');
       setIsLogModalOpen(true);
-      console.log('Modal state set to open, isLogModalOpen:', true);
 
-      console.log('Fetching logs for execution:', execution.id);
+      if (!scriptId) return;
+
       const logs = await scriptsApi.getExecutionLogs(scriptId, execution.id);
       console.log('Received logs:', logs);
       
       if (!logs && logs !== '') {
-        console.log('No logs available');
         setLogContent('No logs available');
       } else {
-        console.log('Setting log content, length:', logs.length);
-        // Remove ERROR: prefix from each line
-        const cleanedLogs = logs.split('\n').map(line => line.replace(/^ERROR: /, '')).join('\n');
+        // Clean logs and set content
+        const cleanedLogs = logs.split('\n')
+          .map(line => line.replace(/^ERROR: /, ''))
+          .join('\n');
         setLogContent(cleanedLogs);
       }
     } catch (err) {
-      console.error('Error in handleViewLogs:', err);
-      handleApiError(err, 'loading logs');
+      console.error('Error loading logs:', err);
+      handleApiError(err, 'loading execution logs');
       setLogContent('Error loading logs');
     }
   };
@@ -827,111 +847,232 @@ export function ScriptDetailPage() {
       </Stack>
 
       {/* Execution Modal */}
-      <Modal
-        opened={showExecutionModal}
-        onClose={closeExecutionModal}
-        title="Script Execution"
-        size="xl"
-      >
-        <Stack>
-          <Paper
-            className="execution-output"
-            withBorder
-            p="md"
+      {showExecutionModal && (
+        <Portal>
+          <div
             style={{
-              height: '500px',
-              overflowY: 'auto',
-              backgroundColor: '#1A1B1E',
-              fontFamily: 'monospace',
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0, 0, 0, 0.75)',
+              zIndex: 1000,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
             }}
           >
-            {executionOutput.length > 0 ? (
-              executionOutput.map((line, index) => (
-                <Text
-                  key={index}
+            <Paper
+              style={{
+                width: '90%',
+                maxWidth: '1000px',
+                maxHeight: '90vh',
+                margin: '20px',
+                position: 'relative',
+              }}
+              p="md"
+            >
+              <Stack>
+                <Group justify="space-between" mb="md">
+                  <Title order={3}>Script Execution</Title>
+                  <ActionIcon 
+                    onClick={closeExecutionModal} 
+                    disabled={isExecuting}
+                    variant="subtle"
+                  >
+                    ✕
+                  </ActionIcon>
+                </Group>
+
+                <Paper
+                  className="execution-output"
+                  withBorder
+                  p="md"
                   style={{
-                    whiteSpace: 'pre-wrap',
-                    color: '#d4d4d4',
-                    padding: '2px 0',
+                    height: '500px',
+                    overflowY: 'auto',
+                    backgroundColor: '#1A1B1E',
+                    fontFamily: 'monospace',
                   }}
                 >
-                  {line}
-                </Text>
-              ))
-            ) : (
-              <Text c="dimmed" ta="center">
-                {isExecuting ? 'Executing script...' : 'Waiting for output...'}
-              </Text>
-            )}
-          </Paper>
+                  {executionOutput.length > 0 ? (
+                    executionOutput.map((line, index) => (
+                      <Text
+                        key={index}
+                        style={{
+                          whiteSpace: 'pre-wrap',
+                          color: '#d4d4d4',
+                          padding: '2px 0',
+                        }}
+                      >
+                        {line}
+                      </Text>
+                    ))
+                  ) : (
+                    <Text c="dimmed" ta="center">
+                      {isExecuting ? 'Executing script...' : 'Waiting for output...'}
+                    </Text>
+                  )}
+                </Paper>
 
-          <Group justify="flex-end">
-            <Button
-              variant="light"
-              color="gray"
-              onClick={closeExecutionModal}
-              disabled={isExecuting}
-            >
-              Close
-            </Button>
-          </Group>
-        </Stack>
-      </Modal>
+                <Group justify="flex-end">
+                  <Button
+                    variant="light"
+                    color="gray"
+                    onClick={closeExecutionModal}
+                    disabled={isExecuting}
+                  >
+                    Close
+                  </Button>
+                </Group>
+              </Stack>
+            </Paper>
+          </div>
+        </Portal>
+      )}
 
       {/* Log Modal */}
-      <Modal
-        opened={isLogModalOpen}
-        onClose={closeLogModal}
-        title={`Execution Logs - ${selectedExecution?.started_at ? formatDate(selectedExecution.started_at) : ''}`}
-        size="xl"
-      >
-        <Paper
-          withBorder
-          p="md"
-          style={{
-            height: '500px',
-            overflowY: 'auto',
-            backgroundColor: '#1A1B1E',
-            fontFamily: 'monospace',
-          }}
-        >
-          <Text
+      {isLogModalOpen && (
+        <Portal>
+          <div
             style={{
-              whiteSpace: 'pre-wrap',
-              color: '#d4d4d4',
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0, 0, 0, 0.75)',
+              zIndex: 1000,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
             }}
           >
-            {logContent || 'No logs available'}
-          </Text>
-        </Paper>
-      </Modal>
+            <Paper
+              style={{
+                width: '90%',
+                maxWidth: '1000px',
+                maxHeight: '90vh',
+                margin: '20px',
+                position: 'relative',
+              }}
+              p="md"
+            >
+              <Stack>
+                <Group justify="space-between" mb="md">
+                  <Title order={3}>
+                    Execution Log
+                    {selectedExecution?.started_at && (
+                      <Text size="sm" c="dimmed" mt={4}>
+                        {formatDate(selectedExecution.started_at)}
+                      </Text>
+                    )}
+                  </Title>
+                  <ActionIcon 
+                    onClick={closeLogModal}
+                    variant="subtle"
+                  >
+                    ✕
+                  </ActionIcon>
+                </Group>
+
+                <Paper
+                  withBorder
+                  p="md"
+                  style={{
+                    height: '500px',
+                    overflowY: 'auto',
+                    backgroundColor: '#1A1B1E',
+                    fontFamily: 'monospace',
+                  }}
+                >
+                  {logContent ? (
+                    logContent.split('\n').map((line, index) => (
+                      <Text
+                        key={index}
+                        style={{
+                          whiteSpace: 'pre-wrap',
+                          color: '#d4d4d4',
+                          padding: '2px 0',
+                        }}
+                      >
+                        {line.replace(/^ERROR: /, '')}
+                      </Text>
+                    ))
+                  ) : (
+                    <Text c="dimmed" ta="center">
+                      No logs available
+                    </Text>
+                  )}
+                </Paper>
+              </Stack>
+            </Paper>
+          </div>
+        </Portal>
+      )}
 
       {/* Delete Confirmation Modal */}
-      <Modal
-        opened={isDeleteModalOpen}
-        onClose={() => setIsDeleteModalOpen(false)}
-        title="Delete Script"
-      >
-        <Stack>
-          <Text>Are you sure you want to delete this script? This action cannot be undone.</Text>
-          <Group justify="flex-end">
-            <Button
-              variant="light"
-              onClick={() => setIsDeleteModalOpen(false)}
-              disabled={isDeleting}
+      {isDeleteModalOpen && (
+        <Portal>
+          <div
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0, 0, 0, 0.75)',
+              zIndex: 1000,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Paper
+              style={{
+                width: '90%',
+                maxWidth: '500px',
+                margin: '20px',
+                position: 'relative',
+              }}
+              p="md"
             >
-              Cancel
-            </Button>
-            <Button
-              color="red"
-              onClick={handleDelete}
-              loading={isDeleting}
-            >
-              Delete
-            </Button>
-          </Group>
-        </Stack>
-      </Modal>
+              <Stack>
+                <Group justify="space-between" mb="md">
+                  <Title order={3}>Delete Script</Title>
+                  <ActionIcon 
+                    onClick={() => setIsDeleteModalOpen(false)}
+                    variant="subtle"
+                    disabled={isDeleting}
+                  >
+                    ✕
+                  </ActionIcon>
+                </Group>
+
+                <Text>Are you sure you want to delete this script? This action cannot be undone.</Text>
+
+                <Group justify="flex-end">
+                  <Button
+                    variant="light"
+                    onClick={() => setIsDeleteModalOpen(false)}
+                    disabled={isDeleting}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    color="red"
+                    onClick={handleDelete}
+                    loading={isDeleting}
+                  >
+                    Delete
+                  </Button>
+                </Group>
+              </Stack>
+            </Paper>
+          </div>
+        </Portal>
+      )}
     </Box>
   );
 } 
