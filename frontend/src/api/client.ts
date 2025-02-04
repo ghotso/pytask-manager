@@ -1,6 +1,6 @@
 import axios from 'axios';
 import type { Script, Tag, Dependency, Schedule, Execution } from '../types';
-import { API_BASE_URL, WS_BASE_URL } from '../config';
+import { API_BASE_URL } from '../config';
 
 export type { Script, Tag, Dependency, Schedule, Execution };
 
@@ -94,9 +94,11 @@ export const scriptsApi = {
     await api.delete(`/api/scripts/${id}`);
   },
 
-  execute: (id: number): WebSocket => {
-    const wsUrl = `${WS_BASE_URL}/api/scripts/${id}/ws`;
-    return new WebSocket(wsUrl);
+  execute: async (id: number) => {
+    const response = await api.post<{ execution_id: number; status: string }>(
+      `/api/scripts/${id}/execute`
+    );
+    return response.data;
   },
 
   checkDependencies: async (id: number) => {

@@ -283,7 +283,12 @@ export function ScriptDetailPage() {
       setExecutionOutput([]);
       setShowExecutionModal(true);
 
-      console.log('Opening execution modal and connecting to WebSocket...');
+      // First, start the script execution via HTTP
+      const executionResponse = await scriptsApi.execute(scriptId);
+      console.log('Script execution started:', executionResponse);
+
+      // Then connect to WebSocket for live output
+      console.log('Connecting to WebSocket...');
       const wsUrl = `${WS_BASE_URL}/api/scripts/${scriptId}/ws`;
       console.log('WebSocket URL:', wsUrl);
       
@@ -298,7 +303,6 @@ export function ScriptDetailPage() {
         const logLine = event.data.replace(/^ERROR: /, '');
         console.log('Received log line:', logLine);
         
-        // Update state immediately with the new line
         setExecutionOutput(prev => {
           const newOutput = [...prev, logLine];
           console.log('Current output lines:', newOutput.length);
@@ -612,7 +616,35 @@ export function ScriptDetailPage() {
           width: '100%'
         }}>
           {/* Left Column */}
-          <Stack gap="xl">
+          <Stack gap="xl" style={{ flex: 1 }}>
+            <Card withBorder>
+              <Stack gap="md">
+                <TextInput
+                  placeholder="Description"
+                  value={description}
+                  onChange={(e) => handleDescriptionChange(e.target.value)}
+                  styles={{
+                    input: {
+                      backgroundColor: 'transparent',
+                    },
+                  }}
+                />
+                
+                <div 
+                  style={{ 
+                    position: 'relative',
+                    minHeight: '200px',
+                    width: '100%'
+                  }}
+                >
+                  <CodeEditor
+                    value={content}
+                    onChange={handleContentChange}
+                  />
+                </div>
+              </Stack>
+            </Card>
+
             <Card withBorder>
               <Text fw={500} size="lg" mb="md">Dependencies</Text>
               <Stack>
