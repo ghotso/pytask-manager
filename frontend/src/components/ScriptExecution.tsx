@@ -48,31 +48,45 @@ export function ScriptExecution() {
     }
   };
 
-  const handleExecute = () => {
+  const handleExecute = async () => {
     if (!id || !script) return;
 
     setIsExecuting(true);
     setOutput([]);
 
-    const ws = scriptsApi.execute(parseInt(id));
-    wsRef.current = ws;
+    try {
+      // First, start the execution via HTTP
+      const { execution_id } = await scriptsApi.execute(parseInt(id));
 
-    ws.onmessage = (event) => {
-      setOutput((current) => [...current, event.data]);
-    };
+      // Then connect to WebSocket for live output
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const ws = new WebSocket(`${protocol}//${window.location.host}/api/scripts/${id}/executions/${execution_id}/ws`);
+      wsRef.current = ws;
 
-    ws.onerror = () => {
+      ws.onmessage = (event) => {
+        setOutput((current) => [...current, event.data]);
+      };
+
+      ws.onerror = () => {
+        notifications.show({
+          title: 'Error',
+          message: 'Failed to connect to WebSocket',
+          color: 'red',
+        });
+        setIsExecuting(false);
+      };
+
+      ws.onclose = () => {
+        setIsExecuting(false);
+      };
+    } catch (error) {
       notifications.show({
         title: 'Error',
-        message: 'Failed to execute script',
+        message: 'Failed to start script execution',
         color: 'red',
       });
       setIsExecuting(false);
-    };
-
-    ws.onclose = () => {
-      setIsExecuting(false);
-    };
+    }
   };
 
   if (isLoading || !script) {
