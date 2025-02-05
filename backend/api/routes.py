@@ -613,6 +613,15 @@ async def websocket_endpoint(
                 except (WebSocketDisconnect, RuntimeError) as e:
                     logger.warning(f"WebSocket disconnected during streaming: {e}")
                     break
+            
+            # After streaming is complete, get the final execution status
+            await session.refresh(execution)
+            final_status = f"Execution finished with status: {execution.status}"
+            try:
+                await websocket.send_text(final_status)
+                logger.debug(f"Sent final status: {final_status}")
+            except (WebSocketDisconnect, RuntimeError):
+                pass
                     
         except Exception as e:
             logger.exception("Error streaming output")
@@ -828,15 +837,19 @@ async def _execute_script(script_id: int, execution_id: int) -> None:
             
             # Collect output
             output_lines = []
+            has_error = False
             try:
                 async for line in manager.execute(execution_id):
                     output_lines.append(line)
                     if line.startswith("Error: Script exited with return code"):
                         last_error = line
+                        has_error = True
                     elif line.startswith("ERROR: "):
                         last_error = line
+                        has_error = True
             except Exception as e:
                 last_error = f"Error: {str(e)}"
+                has_error = True
                 logger.exception("Error during script execution")
                 raise
             
@@ -844,13 +857,14 @@ async def _execute_script(script_id: int, execution_id: int) -> None:
             execution.completed_at = datetime.now(timezone.utc)
             execution.log_output = "".join(output_lines)
             
-            if last_error:
+            if has_error:
                 execution.status = ExecutionStatus.FAILURE
                 execution.error_message = last_error
             else:
                 execution.status = ExecutionStatus.SUCCESS
             
             await session.commit()
+            logger.info(f"Script execution completed with status: {execution.status}")
             
     except Exception as e:
         logger.exception(f"Error executing script {script_id}")

@@ -617,22 +617,6 @@ export function ScriptDetailPage() {
         }}>
           {/* Left Column */}
           <Stack gap="xl" style={{ flex: 1 }}>
-            {/* Code Editor */}
-            <Card withBorder>
-              <Text fw={500} size="lg" mb="md">Content</Text>
-              <div style={{ 
-                position: 'relative',
-                minHeight: '600px',
-                width: '100%'
-              }}>
-                <CodeEditor
-                  value={content}
-                  onChange={handleContentChange}
-                  height="600px"
-                />
-              </div>
-            </Card>
-
             {/* Dependencies */}
             <Card withBorder>
               <Text fw={500} size="lg" mb="md">Dependencies</Text>
@@ -786,6 +770,22 @@ export function ScriptDetailPage() {
                   </Button>
                 </Group>
               </Stack>
+            </Card>
+
+            {/* Code Editor */}
+            <Card withBorder>
+              <Text fw={500} size="lg" mb="md">Content</Text>
+              <div style={{ 
+                position: 'relative',
+                minHeight: '600px',
+                width: '100%'
+              }}>
+                <CodeEditor
+                  value={content}
+                  onChange={handleContentChange}
+                  height="600px"
+                />
+              </div>
             </Card>
           </Stack>
 
