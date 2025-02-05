@@ -14,15 +14,14 @@ export function ScriptExecution() {
   const [output, setOutput] = useState<string[]>([]);
   const outputRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const executionIdRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (id) {
       loadScript(parseInt(id));
     }
     return () => {
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
+      cleanupWebSocket();
     };
   }, [id]);
 
@@ -31,6 +30,14 @@ export function ScriptExecution() {
       outputRef.current.scrollTop = outputRef.current.scrollHeight;
     }
   }, [output]);
+
+  const cleanupWebSocket = () => {
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    executionIdRef.current = null;
+  };
 
   const loadScript = async (scriptId: number) => {
     try {
@@ -48,8 +55,46 @@ export function ScriptExecution() {
     }
   };
 
+  const setupWebSocket = (scriptId: number, executionId: number) => {
+    // Clean up any existing connection
+    cleanupWebSocket();
+
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${protocol}//${window.location.host}/api/scripts/${scriptId}/ws`);
+    wsRef.current = ws;
+    executionIdRef.current = executionId;
+
+    ws.onopen = () => {
+      console.log('WebSocket connected');
+    };
+
+    ws.onmessage = (event) => {
+      setOutput((current) => [...current, event.data]);
+    };
+
+    ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+      notifications.show({
+        title: 'Error',
+        message: 'Failed to connect to execution stream',
+        color: 'red',
+      });
+      setIsExecuting(false);
+      cleanupWebSocket();
+    };
+
+    ws.onclose = () => {
+      console.log('WebSocket closed');
+      setIsExecuting(false);
+      cleanupWebSocket();
+    };
+
+    return ws;
+  };
+
   const handleExecute = async () => {
     if (!id || !script) return;
+    if (isExecuting) return; // Prevent multiple executions
 
     setIsExecuting(true);
     setOutput([]);
@@ -57,35 +102,19 @@ export function ScriptExecution() {
     try {
       // First, start the execution via HTTP
       const { execution_id } = await scriptsApi.execute(parseInt(id));
-
-      // Then connect to WebSocket for live output
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const ws = new WebSocket(`${protocol}//${window.location.host}/api/scripts/${id}/executions/${execution_id}/ws`);
-      wsRef.current = ws;
-
-      ws.onmessage = (event) => {
-        setOutput((current) => [...current, event.data]);
-      };
-
-      ws.onerror = () => {
-        notifications.show({
-          title: 'Error',
-          message: 'Failed to connect to WebSocket',
-          color: 'red',
-        });
-        setIsExecuting(false);
-      };
-
-      ws.onclose = () => {
-        setIsExecuting(false);
-      };
+      console.log('Execution started with ID:', execution_id);
+      
+      // Setup WebSocket connection
+      setupWebSocket(parseInt(id), execution_id);
     } catch (error) {
+      console.error('Failed to start execution:', error);
       notifications.show({
         title: 'Error',
         message: 'Failed to start script execution',
         color: 'red',
       });
       setIsExecuting(false);
+      cleanupWebSocket();
     }
   };
 
@@ -114,7 +143,7 @@ export function ScriptExecution() {
             disabled={isExecuting}
             leftSection={<IconPlayerPlay size={16} />}
           >
-            Execute
+            {isExecuting ? 'Executing...' : 'Execute'}
           </Button>
         </Group>
       </Group>
@@ -144,7 +173,7 @@ export function ScriptExecution() {
           ))
         ) : (
           <Text c="dimmed" ta="center">
-            Click Execute to run the script
+            {isExecuting ? 'Waiting for output...' : 'Click Execute to run the script'}
           </Text>
         )}
       </Paper>
