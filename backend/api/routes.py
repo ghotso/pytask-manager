@@ -620,48 +620,54 @@ async def websocket_endpoint(
                 try:
                     await websocket.send_text(output)
                     logger.debug("Sent output to WebSocket")
-                except (WebSocketDisconnect, RuntimeError) as e:
-                    logger.warning(f"WebSocket disconnected during streaming: {e}")
+                except WebSocketDisconnect:
+                    logger.warning("WebSocket disconnected during streaming")
                     break
                 
                 # Check if execution status has changed
                 await session.refresh(execution)
                 if execution.status != last_status:
-                    status_message = f"Execution status changed to: {execution.status}"
+                    status_message = f"STATUS: {execution.status}"
+                    if execution.error_message:
+                        status_message += f" - {execution.error_message}"
                     try:
                         await websocket.send_text(status_message)
                         logger.debug(f"Sent status update: {status_message}")
-                    except (WebSocketDisconnect, RuntimeError):
+                    except WebSocketDisconnect:
                         break
                     last_status = execution.status
-                
-                # If execution is complete, send final message and break
-                if execution.status not in [ExecutionStatus.PENDING, ExecutionStatus.RUNNING]:
-                    final_message = f"Execution finished with status: {execution.status}"
-                    if execution.error_message:
-                        final_message += f"\nError: {execution.error_message}"
-                    try:
-                        await websocket.send_text(final_message)
-                        logger.debug("Sent final execution message")
-                    except (WebSocketDisconnect, RuntimeError):
-                        pass
-                    break
             
+            # Send final status if we haven't already
+            await session.refresh(execution)
+            if execution.status != last_status:
+                final_message = f"STATUS: {execution.status}"
+                if execution.error_message:
+                    final_message += f" - {execution.error_message}"
+                try:
+                    await websocket.send_text(final_message)
+                    logger.debug("Sent final status message")
+                except WebSocketDisconnect:
+                    pass
+                
         except Exception as e:
             logger.exception("Error streaming output")
             try:
                 await websocket.send_text(f"Error: {str(e)}")
-            except (WebSocketDisconnect, RuntimeError):
+            except WebSocketDisconnect:
                 pass
                 
     except Exception as e:
         logger.exception("WebSocket endpoint error")
+        try:
+            await websocket.send_text(f"Error: {str(e)}")
+        except WebSocketDisconnect:
+            pass
         
     finally:
         try:
             await websocket.close()
             logger.debug("WebSocket connection closed")
-        except (WebSocketDisconnect, RuntimeError):
+        except WebSocketDisconnect:
             pass
 
 
@@ -838,7 +844,6 @@ async def _execute_script(script_id: int, execution_id: int) -> None:
     """Execute a script and update its execution record."""
     logger.info(f"Executing script {script_id}")
     manager = None
-    last_error = None
     
     try:
         async with get_session_context() as session:
@@ -861,18 +866,17 @@ async def _execute_script(script_id: int, execution_id: int) -> None:
             
             # Collect output
             output_lines = []
-            has_error = False
+            exit_code = 0
             try:
                 async for line in manager.execute(execution_id):
                     output_lines.append(line)
-                    # Only mark as error if there's an actual error message
-                    if (line.startswith("Error:") and "Script exited with return code" in line) or \
-                       (line.startswith("ERROR:") and not line.startswith("ERROR: Script output:")):
-                        last_error = line
-                        has_error = True
+                    # Check if this is an exit code line
+                    if line.startswith("Error: Script exited with return code"):
+                        try:
+                            exit_code = int(line.split("return code")[-1].strip())
+                        except (ValueError, IndexError):
+                            exit_code = 1
             except Exception as e:
-                last_error = f"Error: {str(e)}"
-                has_error = True
                 logger.exception("Error during script execution")
                 raise
             
@@ -880,14 +884,14 @@ async def _execute_script(script_id: int, execution_id: int) -> None:
             execution.completed_at = datetime.now(timezone.utc)
             execution.log_output = "".join(output_lines)
             
-            if has_error:
+            if exit_code != 0:
                 execution.status = ExecutionStatus.FAILURE
-                execution.error_message = last_error
+                execution.error_message = f"Script exited with return code {exit_code}"
             else:
                 execution.status = ExecutionStatus.SUCCESS
             
             await session.commit()
-            logger.info(f"Script execution completed with status: {execution.status}")
+            logger.info(f"Script execution completed with status: {execution.status} (exit code: {exit_code})")
             
     except Exception as e:
         logger.exception(f"Error executing script {script_id}")
