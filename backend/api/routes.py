@@ -8,7 +8,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, BackgroundTasks
 from starlette.websockets import WebSocketDisconnect
 from pydantic import ValidationError, BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -290,6 +290,9 @@ async def delete_script(
 ) -> None:
     """Delete a script."""
     try:
+        logger.info(f"Deleting script {script_id}")
+        
+        # Get script with all relationships loaded
         script = await _get_script(session, script_id)
         
         # Remove any active schedules from the scheduler
@@ -304,12 +307,20 @@ async def delete_script(
             logger.warning(f"Failed to clean up script directory: {e}")
             # Continue with deletion even if cleanup fails
         
-        # Delete the script from the database
+        # Delete all related records first
+        # This is handled by SQLAlchemy's cascade settings, but we'll do it explicitly
+        # to ensure proper order and avoid foreign key constraint issues
+        await session.execute(delete(Dependency).where(Dependency.script_id == script_id))
+        await session.execute(delete(Schedule).where(Schedule.script_id == script_id))
+        await session.execute(delete(Execution).where(Execution.script_id == script_id))
+        
+        # Delete the script itself
         await session.delete(script)
         await session.commit()
+        logger.info(f"Successfully deleted script {script_id}")
         
     except Exception as e:
-        logger.error(f"Error deleting script: {str(e)}", exc_info=True)
+        logger.error(f"Error deleting script: {str(e)}")
         await session.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -578,7 +589,6 @@ async def websocket_endpoint(
     logger.debug("WebSocket connection initiated")
     await websocket.accept()
     logger.debug("WebSocket connection accepted")
-    output_buffer = []
     
     try:
         # Get the most recent running execution for this script
@@ -601,28 +611,42 @@ async def websocket_endpoint(
         
         # Create script manager to read output
         manager = ScriptManager(script_id, base_dir=str(settings.scripts_dir))
+        last_status = execution.status
         
         try:
             # Stream output from the running execution
             async for output in manager.read_output(execution.id):
                 logger.debug(f"Received output: {output!r}")
-                output_buffer.append(output)
                 try:
                     await websocket.send_text(output)
                     logger.debug("Sent output to WebSocket")
                 except (WebSocketDisconnect, RuntimeError) as e:
                     logger.warning(f"WebSocket disconnected during streaming: {e}")
                     break
+                
+                # Check if execution status has changed
+                await session.refresh(execution)
+                if execution.status != last_status:
+                    status_message = f"Execution status changed to: {execution.status}"
+                    try:
+                        await websocket.send_text(status_message)
+                        logger.debug(f"Sent status update: {status_message}")
+                    except (WebSocketDisconnect, RuntimeError):
+                        break
+                    last_status = execution.status
+                
+                # If execution is complete, send final message and break
+                if execution.status not in [ExecutionStatus.PENDING, ExecutionStatus.RUNNING]:
+                    final_message = f"Execution finished with status: {execution.status}"
+                    if execution.error_message:
+                        final_message += f"\nError: {execution.error_message}"
+                    try:
+                        await websocket.send_text(final_message)
+                        logger.debug("Sent final execution message")
+                    except (WebSocketDisconnect, RuntimeError):
+                        pass
+                    break
             
-            # After streaming is complete, get the final execution status
-            await session.refresh(execution)
-            final_status = f"Execution finished with status: {execution.status}"
-            try:
-                await websocket.send_text(final_status)
-                logger.debug(f"Sent final status: {final_status}")
-            except (WebSocketDisconnect, RuntimeError):
-                pass
-                    
         except Exception as e:
             logger.exception("Error streaming output")
             try:
@@ -841,10 +865,9 @@ async def _execute_script(script_id: int, execution_id: int) -> None:
             try:
                 async for line in manager.execute(execution_id):
                     output_lines.append(line)
-                    if line.startswith("Error: Script exited with return code"):
-                        last_error = line
-                        has_error = True
-                    elif line.startswith("ERROR: "):
+                    # Only mark as error if there's an actual error message
+                    if (line.startswith("Error:") and "Script exited with return code" in line) or \
+                       (line.startswith("ERROR:") and not line.startswith("ERROR: Script output:")):
                         last_error = line
                         has_error = True
             except Exception as e:
