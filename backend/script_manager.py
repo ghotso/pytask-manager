@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .config import settings
+from .database import get_session_context
 from .models import Dependency, Execution, ExecutionStatus, Script
 
 logger = logging.getLogger(__name__)
@@ -195,6 +196,7 @@ class ScriptManager:
         """Execute the script and stream its output."""
         logger.info(f"Executing script {self.script_id}")
         process = None
+        output_file = self.script_dir / f"output_{execution_id}.txt"
         
         try:
             # Ensure script file exists
@@ -240,15 +242,20 @@ class ScriptManager:
                             logger.error(f"Error terminating process: {e}")
                     raise RuntimeError("Script execution timed out after 5 minutes")
                 
-                # Yield stdout lines
+                # Write and yield stdout lines
                 for line in stdout_lines:
                     logger.debug(f"Yielding stdout line: {line!r}")
+                    with open(output_file, "a") as f:
+                        f.write(line)
                     yield line
                 
-                # Yield stderr lines
+                # Write and yield stderr lines
                 for line in stderr_lines:
                     logger.debug(f"Yielding stderr line: {line!r}")
-                    yield f"ERROR: {line}"
+                    error_line = f"ERROR: {line}"
+                    with open(output_file, "a") as f:
+                        f.write(error_line)
+                    yield error_line
                 
                 # Wait for completion with timeout
                 try:
@@ -263,17 +270,23 @@ class ScriptManager:
                 if process.returncode != 0:
                     error_msg = f"Error: Script exited with return code {process.returncode}\n"
                     logger.error(f"Script execution failed with return code {process.returncode}")
+                    with open(output_file, "a") as f:
+                        f.write(error_msg)
                     yield error_msg
 
             except Exception as e:
                 error_msg = f"Error: {str(e)}\n"
                 logger.exception("Error during script execution")
+                with open(output_file, "a") as f:
+                    f.write(error_msg)
                 yield error_msg
                 raise  # Re-raise to ensure proper cleanup
 
         except Exception as e:
             error_msg = f"Error: {str(e)}\n"
             logger.exception("Error during script execution")
+            with open(output_file, "a") as f:
+                f.write(error_msg)
             yield error_msg
             raise
 
@@ -287,6 +300,13 @@ class ScriptManager:
                         process.kill()  # Force kill if still running
                 except Exception as e:
                     logger.error(f"Error cleaning up process: {e}")
+            
+            # Clean up output file
+            try:
+                if output_file.exists():
+                    output_file.unlink()
+            except Exception as e:
+                logger.error(f"Error cleaning up output file: {e}")
 
     def cleanup(self) -> None:
         """Clean up script environment."""
@@ -294,6 +314,16 @@ class ScriptManager:
             return
 
         logger.info(f"Cleaning up script {self.script_id}")
+        
+        # Clean up output files
+        try:
+            for file in self.script_dir.glob("output_*.txt"):
+                try:
+                    file.unlink()
+                except Exception as e:
+                    logger.warning(f"Failed to remove output file {file}: {e}")
+        except Exception as e:
+            logger.warning(f"Error cleaning up output files: {e}")
         
         # First try to remove the venv directory
         if self.venv_dir.exists():
@@ -446,4 +476,45 @@ class ScriptManager:
             
     def get_requirements_path(self) -> str:
         """Get the path to the requirements.txt file for this script."""
-        return str(self.requirements_path) 
+        return str(self.requirements_path)
+
+    async def read_output(self, execution_id: int) -> AsyncGenerator[str, None]:
+        """Read output from a running execution."""
+        output_file = self.script_dir / f"output_{execution_id}.txt"
+        
+        # Keep track of where we are in the file
+        position = 0
+        
+        while True:
+            try:
+                # Check if execution is still running
+                async with get_session_context() as session:
+                    execution = await session.get(Execution, execution_id)
+                    if not execution:
+                        logger.error(f"Execution {execution_id} not found")
+                        break
+                    if execution.status not in [ExecutionStatus.RUNNING, ExecutionStatus.PENDING]:
+                        # Read any remaining output
+                        if output_file.exists():
+                            with open(output_file, "r") as f:
+                                f.seek(position)
+                                content = f.read()
+                                if content:
+                                    yield content
+                        break
+                
+                # Read new content if file exists
+                if output_file.exists():
+                    with open(output_file, "r") as f:
+                        f.seek(position)
+                        content = f.read()
+                        if content:
+                            position = f.tell()
+                            yield content
+                
+                # Small delay to prevent busy waiting
+                await asyncio.sleep(0.1)
+                
+            except Exception as e:
+                logger.error(f"Error reading output: {e}")
+                break 

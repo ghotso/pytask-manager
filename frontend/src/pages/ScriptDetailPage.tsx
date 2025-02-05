@@ -617,34 +617,23 @@ export function ScriptDetailPage() {
         }}>
           {/* Left Column */}
           <Stack gap="xl" style={{ flex: 1 }}>
+            {/* Code Editor */}
             <Card withBorder>
-              <Stack gap="md">
-                <TextInput
-                  placeholder="Description"
-                  value={description}
-                  onChange={(e) => handleDescriptionChange(e.target.value)}
-                  styles={{
-                    input: {
-                      backgroundColor: 'transparent',
-                    },
-                  }}
+              <Text fw={500} size="lg" mb="md">Content</Text>
+              <div style={{ 
+                position: 'relative',
+                minHeight: '600px',
+                width: '100%'
+              }}>
+                <CodeEditor
+                  value={content}
+                  onChange={handleContentChange}
+                  height="600px"
                 />
-                
-                <div 
-                  style={{ 
-                    position: 'relative',
-                    minHeight: '200px',
-                    width: '100%'
-                  }}
-                >
-                  <CodeEditor
-                    value={content}
-                    onChange={handleContentChange}
-                  />
-                </div>
-              </Stack>
+              </div>
             </Card>
 
+            {/* Dependencies */}
             <Card withBorder>
               <Text fw={500} size="lg" mb="md">Dependencies</Text>
               <Stack>
@@ -797,15 +786,6 @@ export function ScriptDetailPage() {
                   </Button>
                 </Group>
               </Stack>
-            </Card>
-
-            <Card withBorder>
-              <Text fw={500} size="lg" mb="md">Content</Text>
-              <CodeEditor
-                value={content}
-                onChange={handleContentChange}
-                height="600px"
-              />
             </Card>
           </Stack>
 

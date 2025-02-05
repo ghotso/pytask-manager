@@ -578,6 +578,7 @@ async def websocket_endpoint(
     logger.debug("WebSocket connection initiated")
     await websocket.accept()
     logger.debug("WebSocket connection accepted")
+    output_buffer = []
     
     try:
         # Get the most recent running execution for this script
@@ -585,7 +586,7 @@ async def websocket_endpoint(
             select(Execution)
             .where(
                 Execution.script_id == script_id,
-                Execution.status == ExecutionStatus.RUNNING
+                Execution.status.in_([ExecutionStatus.PENDING, ExecutionStatus.RUNNING])
             )
             .order_by(Execution.started_at.desc())
         )
@@ -598,79 +599,32 @@ async def websocket_endpoint(
             
         logger.debug(f"Found running execution {execution.id}")
         
-        # Get the script
-        script = await _get_script(session, script_id)
-        logger.debug(f"Retrieved script {script_id}")
+        # Create script manager to read output
+        manager = ScriptManager(script_id, base_dir=str(settings.scripts_dir))
         
         try:
-            # Set up environment
-            manager = ScriptManager(script_id, base_dir=str(settings.scripts_dir))
-            await manager.setup_environment(script.content, script.dependencies)
-            logger.debug("Environment setup complete")
-            
-            # Execute and stream output
-            output_buffer = []
-            try:
-                async for output in manager.execute(execution.id):
-                    logger.debug(f"Received output: {output!r}")
-                    output_buffer.append(output)
-                    try:
-                        await websocket.send_text(output)
-                        logger.debug("Sent output to WebSocket")
-                    except (WebSocketDisconnect, RuntimeError) as e:
-                        logger.warning(f"WebSocket disconnected during execution: {e}")
-                        break
-                
-                # Only mark as success if we got here without exceptions
-                execution.status = ExecutionStatus.SUCCESS
-                execution.log_output = "".join(output_buffer)
-                logger.debug(f"Execution successful. Full log output:\n{execution.log_output}")
-                await session.commit()
-                
-            except Exception as e:
-                logger.exception("Script execution failed")
-                execution.status = ExecutionStatus.FAILURE
-                execution.error_message = str(e)
-                execution.log_output = "".join(output_buffer)
-                logger.debug(f"Execution failed. Error log output:\n{execution.log_output}")
-                await session.commit()
+            # Stream output from the running execution
+            async for output in manager.read_output(execution.id):
+                logger.debug(f"Received output: {output!r}")
+                output_buffer.append(output)
                 try:
-                    await websocket.send_text(f"Error: {str(e)}")
-                except (WebSocketDisconnect, RuntimeError):
-                    pass
-                
+                    await websocket.send_text(output)
+                    logger.debug("Sent output to WebSocket")
+                except (WebSocketDisconnect, RuntimeError) as e:
+                    logger.warning(f"WebSocket disconnected during streaming: {e}")
+                    break
+                    
         except Exception as e:
-            logger.exception("Failed to set up script environment")
-            execution.status = ExecutionStatus.FAILURE
-            execution.error_message = f"Setup failed: {str(e)}"
-            execution.log_output = "".join(output_buffer)
-            await session.commit()
+            logger.exception("Error streaming output")
             try:
-                await websocket.send_text(f"Error: Setup failed: {str(e)}")
+                await websocket.send_text(f"Error: {str(e)}")
             except (WebSocketDisconnect, RuntimeError):
                 pass
-            
+                
     except Exception as e:
         logger.exception("WebSocket endpoint error")
-        if execution:
-            execution.status = ExecutionStatus.FAILURE
-            execution.error_message = str(e)
-            execution.log_output = "".join(output_buffer)
-            await session.commit()
-    finally:
-        # Always update completion time if execution exists and isn't completed
-        if execution and not execution.completed_at:
-            execution.completed_at = datetime.now(timezone.utc)
-            if execution.status == ExecutionStatus.RUNNING:
-                execution.status = ExecutionStatus.FAILURE
-                execution.error_message = "Execution interrupted"
-            try:
-                await session.commit()
-                logger.debug(f"Final execution status: {execution.status}")
-                logger.debug(f"Final log output:\n{execution.log_output}")
-            except Exception as e:
-                logger.exception("Failed to save execution status")
         
+    finally:
         try:
             await websocket.close()
             logger.debug("WebSocket connection closed")
