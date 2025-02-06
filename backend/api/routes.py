@@ -626,14 +626,19 @@ async def websocket_endpoint(
         manager = ScriptManager(script_id, base_dir=str(settings.scripts_dir))
         last_status = execution.status
         last_position = 0
+        output_file = manager.script_dir / f"output_{execution.id}.txt"
         
-        # Send initial connection message
+        # Wait for output file to be created (max 5 seconds)
+        for _ in range(50):
+            if output_file.exists():
+                break
+            await asyncio.sleep(0.1)
+        
+        # Send initial connection message only once
         await websocket.send_text("Connected to execution stream...")
         logger.info("Sent initial connection message")
         
         try:
-            output_file = manager.script_dir / f"output_{execution.id}.txt"
-            
             while True:
                 # Check if execution is still running
                 await session.refresh(execution)
@@ -655,9 +660,9 @@ async def websocket_endpoint(
                             f.seek(last_position)
                             new_content = f.read()
                             if new_content:
-                                logger.debug(f"Read new content from position {last_position}: {new_content!r}")
-                                last_position = f.tell()
+                                logger.debug(f"New content available: {len(new_content)} bytes")
                                 await websocket.send_text(new_content)
+                                last_position = f.tell()
                     except Exception as e:
                         logger.error(f"Error reading output file: {e}")
                 
@@ -670,17 +675,16 @@ async def websocket_endpoint(
                                 f.seek(last_position)
                                 remaining = f.read()
                                 if remaining:
-                                    logger.debug(f"Sending final content: {remaining!r}")
+                                    logger.debug(f"Sending final content: {len(remaining)} bytes")
                                     await websocket.send_text(remaining)
                         except Exception as e:
                             logger.error(f"Error reading final output: {e}")
+                    # Send finished message only once
+                    await websocket.send_text("Execution finished.")
+                    logger.info("Sent execution finished message")
                     break
                 
-                await asyncio.sleep(0.01)  # Small delay to prevent busy waiting
-            
-            # Send finished message
-            await websocket.send_text("Execution finished.")
-            logger.info("Sent execution finished message")
+                await asyncio.sleep(0.1)  # Increased delay to reduce CPU usage
             
         except WebSocketDisconnect:
             logger.warning("WebSocket disconnected during streaming")
@@ -947,94 +951,3 @@ async def _execute_script(script_id: int, execution_id: int) -> None:
                 manager.cleanup()
             except Exception as cleanup_error:
                 logger.error(f"Error cleaning up script manager: {cleanup_error}")
-
-
-@router.websocket("/api/executions/{execution_id}/output")
-async def stream_execution_output(websocket: WebSocket, execution_id: int):
-    """Stream execution output via WebSocket."""
-    logger.info(f"WebSocket connection initiated for execution {execution_id}")
-    await websocket.accept()
-    
-    try:
-        async with get_session_context() as session:
-            # Get execution with explicit refresh
-            execution = await session.get(Execution, execution_id)
-            if not execution:
-                logger.error(f"Execution {execution_id} not found")
-                await websocket.close(code=4004, reason="Execution not found")
-                return
-
-            # Get script manager
-            script_manager = ScriptManager(execution.script_id, base_dir=str(settings.scripts_dir))
-            if not script_manager:
-                logger.error(f"Failed to create script manager for script {execution.script_id}")
-                await websocket.close(code=4004, reason="Failed to create script manager")
-                return
-
-            logger.info(f"Starting output stream for execution {execution_id}")
-            await websocket.send_text("Connected to execution stream...")
-
-            # Keep track of last status to detect changes
-            last_status = execution.status
-            last_position = 0
-
-            while True:
-                try:
-                    # Refresh execution status
-                    await session.refresh(execution)
-                    
-                    # Check if status has changed
-                    if execution.status != last_status:
-                        status_msg = f"Status changed to: {execution.status.value}"
-                        logger.info(status_msg)
-                        await websocket.send_text(status_msg)
-                        last_status = execution.status
-
-                    # Read output file
-                    output_file = script_manager.script_dir / f"output_{execution_id}.txt"
-                    if output_file.exists():
-                        try:
-                            with open(output_file, "r") as f:
-                                f.seek(last_position)
-                                new_content = f.read()
-                                if new_content:
-                                    logger.debug(f"Sending new content: {new_content!r}")
-                                    await websocket.send_text(new_content)
-                                    last_position = f.tell()
-                        except Exception as e:
-                            logger.error(f"Error reading output file: {e}")
-
-                    # If execution is complete, send final message and break
-                    if execution.status not in [ExecutionStatus.PENDING, ExecutionStatus.RUNNING]:
-                        # One final read attempt
-                        if output_file.exists():
-                            try:
-                                with open(output_file, "r") as f:
-                                    f.seek(last_position)
-                                    final_content = f.read()
-                                    if final_content:
-                                        await websocket.send_text(final_content)
-                            except Exception as e:
-                                logger.error(f"Error reading final output: {e}")
-                        
-                        await websocket.send_text("Execution finished.")
-                        break
-
-                    await asyncio.sleep(0.1)  # Small delay to prevent busy waiting
-
-                except WebSocketDisconnect:
-                    logger.warning("WebSocket disconnected during streaming")
-                    return
-                except Exception as e:
-                    logger.error(f"Error during output streaming: {e}")
-                    await websocket.close(code=4005, reason=str(e))
-                    return
-
-    except Exception as e:
-        logger.exception("Error in WebSocket connection")
-        try:
-            await websocket.close(code=4007, reason=str(e))
-        except:
-            pass
-    finally:
-        logger.info(f"WebSocket connection closed for execution {execution_id}")
