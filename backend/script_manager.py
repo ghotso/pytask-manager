@@ -241,7 +241,8 @@ class ScriptManager:
                     
                     # Process stderr
                     if stderr_line:
-                        line = f"ERROR: {stderr_line.decode().rstrip('\\n')}\n"
+                        decoded_line = stderr_line.decode().rstrip('\n')
+                        line = f"ERROR: {decoded_line}\n"
                         logger.debug(f"Stderr line: {line!r}")
                         # Write to file immediately
                         with open(output_file, "a") as f:

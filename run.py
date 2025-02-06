@@ -1,4 +1,5 @@
 """Development server runner."""
+import asyncio
 import logging
 import os
 import sys
@@ -7,7 +8,8 @@ from pathlib import Path
 from alembic.config import Config
 from alembic import command
 
-if __name__ == "__main__":
+async def run_migrations():
+    """Run database migrations and setup."""
     # Get the directory containing this script
     root_dir = Path(__file__).parent.absolute()
     
@@ -15,6 +17,7 @@ if __name__ == "__main__":
     sys.path.insert(0, str(root_dir))
     
     from backend.config import settings
+    from backend.database import create_tables
     
     # Configure logging
     settings.configure_logging()
@@ -34,9 +37,17 @@ if __name__ == "__main__":
         # Run migrations
         command.upgrade(alembic_cfg, 'head')
         logger.info("Database migrations completed successfully")
+        
+        # Create tables
+        await create_tables()
+        logger.info("Database tables created successfully")
     except Exception as e:
-        logger.error(f"Error running migrations: {e}")
+        logger.error(f"Error during setup: {e}")
         raise
+
+if __name__ == "__main__":
+    # Run migrations first
+    asyncio.run(run_migrations())
     
     import uvicorn
     
