@@ -972,41 +972,51 @@ async def stream_execution_output(websocket: WebSocket, execution_id: int):
 
             # Keep track of last status to detect changes
             last_status = execution.status
-            output_buffer = []
+            last_position = 0
 
-            # Stream output until execution is complete
-            async for output in script_manager.read_output(execution_id):
+            while True:
                 try:
-                    if output:
-                        logger.debug(f"Received output: {output!r}")
-                        output_buffer.append(output)
-                        await websocket.send_text(output)
-
                     # Refresh execution status
                     await session.refresh(execution)
                     
                     # Check if status has changed
                     if execution.status != last_status:
-                        status_msg = f"Status changed to: {execution.status}"
+                        status_msg = f"Status changed to: {execution.status.value}"
                         logger.info(status_msg)
                         await websocket.send_text(status_msg)
                         last_status = execution.status
 
-                    # If execution is complete, ensure we've sent all output
+                    # Read output file
+                    output_file = script_manager.script_dir / f"output_{execution_id}.txt"
+                    if output_file.exists():
+                        try:
+                            with open(output_file, "r") as f:
+                                f.seek(last_position)
+                                new_content = f.read()
+                                if new_content:
+                                    logger.debug(f"Sending new content: {new_content!r}")
+                                    await websocket.send_text(new_content)
+                                    last_position = f.tell()
+                        except Exception as e:
+                            logger.error(f"Error reading output file: {e}")
+
+                    # If execution is complete, send final message and break
                     if execution.status not in [ExecutionStatus.PENDING, ExecutionStatus.RUNNING]:
-                        # Send any remaining buffered output
-                        if output_buffer:
-                            logger.debug("Sending remaining buffered output")
-                            for remaining in output_buffer:
-                                await websocket.send_text(remaining)
-                            output_buffer.clear()
+                        # One final read attempt
+                        if output_file.exists():
+                            try:
+                                with open(output_file, "r") as f:
+                                    f.seek(last_position)
+                                    final_content = f.read()
+                                    if final_content:
+                                        await websocket.send_text(final_content)
+                            except Exception as e:
+                                logger.error(f"Error reading final output: {e}")
                         
-                        # Send completion message and break
-                        logger.info("Execution complete, sending final message")
                         await websocket.send_text("Execution finished.")
                         break
 
-                    await asyncio.sleep(0.01)  # Small delay to prevent busy waiting
+                    await asyncio.sleep(0.1)  # Small delay to prevent busy waiting
 
                 except WebSocketDisconnect:
                     logger.warning("WebSocket disconnected during streaming")
@@ -1023,8 +1033,4 @@ async def stream_execution_output(websocket: WebSocket, execution_id: int):
         except:
             pass
     finally:
-        try:
-            await websocket.close()
-        except:
-            pass
         logger.info(f"WebSocket connection closed for execution {execution_id}")

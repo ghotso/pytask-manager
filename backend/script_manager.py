@@ -194,6 +194,7 @@ class ScriptManager:
 
     async def execute(self, execution_id: int) -> AsyncGenerator[str, None]:
         """Execute the script and stream its output."""
+        logger = logging.getLogger(__name__)
         logger.info(f"Executing script {self.script_id}")
         process = None
         output_file = self.script_dir / f"output_{execution_id}.txt"
@@ -219,45 +220,51 @@ class ScriptManager:
             assert process.stdout is not None
             assert process.stderr is not None
 
-            # Process stdout and stderr concurrently
-            while True:
-                # Read from stdout and stderr
-                stdout_line = await process.stdout.readline()
-                stderr_line = await process.stderr.readline()
-                
-                # Process stdout
-                if stdout_line:
-                    decoded_line = stdout_line.decode().rstrip('\n')
-                    output_line = f"{decoded_line}\n"
-                    logger.debug(f"Stdout: {output_line!r}")
-                    # Write and flush immediately
-                    with open(output_file, "a") as f:
-                        f.write(output_line)
+            # Open output file in write mode
+            with open(output_file, "w") as f:
+                while True:
+                    # Read from stdout and stderr
+                    try:
+                        stdout_line = await process.stdout.readline()
+                        stderr_line = await process.stderr.readline()
+                        
+                        # Process stdout
+                        if stdout_line:
+                            decoded_line = stdout_line.decode().rstrip('\n')
+                            output_line = f"{decoded_line}\n"
+                            logger.debug(f"Stdout: {output_line!r}")
+                            f.write(output_line)
+                            f.flush()
+                            os.fsync(f.fileno())  # Force write to disk
+                            yield output_line
+                        
+                        # Process stderr
+                        if stderr_line:
+                            decoded_line = stderr_line.decode().rstrip('\n')
+                            error_line = f"ERROR: {decoded_line}\n"
+                            logger.debug(f"Stderr: {error_line!r}")
+                            f.write(error_line)
+                            f.flush()
+                            os.fsync(f.fileno())  # Force write to disk
+                            yield error_line
+                        
+                        # Check if process has ended and both streams are empty
+                        if not stdout_line and not stderr_line:
+                            if process.returncode is not None:
+                                break
+                            await asyncio.sleep(0.01)  # Small delay to prevent busy waiting
+                        
+                        # Check if process has ended
+                        if process.returncode is not None and process.stdout.at_eof() and process.stderr.at_eof():
+                            break
+                    except Exception as e:
+                        logger.error(f"Error processing output: {e}")
+                        error_msg = f"Error processing output: {str(e)}\n"
+                        f.write(error_msg)
                         f.flush()
-                        os.fsync(f.fileno())  # Force write to disk
-                    yield output_line
-                
-                # Process stderr
-                if stderr_line:
-                    decoded_line = stderr_line.decode().rstrip('\n')
-                    error_line = f"ERROR: {decoded_line}\n"
-                    logger.debug(f"Stderr: {error_line!r}")
-                    # Write and flush immediately
-                    with open(output_file, "a") as f:
-                        f.write(error_line)
-                        f.flush()
-                        os.fsync(f.fileno())  # Force write to disk
-                    yield error_line
-                
-                # Check if process has ended and both streams are empty
-                if not stdout_line and not stderr_line:
-                    if process.returncode is not None:
+                        os.fsync(f.fileno())
+                        yield error_msg
                         break
-                    await asyncio.sleep(0.01)  # Small delay to prevent busy waiting
-                
-                # Check if process has ended
-                if process.returncode is not None and process.stdout.at_eof() and process.stderr.at_eof():
-                    break
             
             # Wait for completion with timeout
             try:
@@ -269,6 +276,12 @@ class ScriptManager:
                     await asyncio.sleep(1)
                     if process.returncode is None:
                         process.kill()
+                error_msg = "Error: Script execution timed out after 5 minutes\n"
+                with open(output_file, "a") as f:
+                    f.write(error_msg)
+                    f.flush()
+                    os.fsync(f.fileno())
+                yield error_msg
                 raise RuntimeError("Script execution timed out after 5 minutes")
             
             logger.debug(f"Process exited with return code {process.returncode}")
