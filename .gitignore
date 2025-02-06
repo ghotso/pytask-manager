@@ -57,4 +57,8 @@ scripts/*/venv/
 scripts/*/requirements.txt
 *.log
 *.sqlite3
-*.db 
+*.db
+
+# Documentation examples
+examples_websocket/
+examples_websocket/**/* 

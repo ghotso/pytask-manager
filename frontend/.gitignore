@@ -11,7 +11,9 @@ node_modules
 dist
 dist-ssr
 *.local
-
+docs/examples_websocket/api.js
+docs/examples_websocket/event.py
+docs/examples_websocket/web.py
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -22,3 +24,4 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+

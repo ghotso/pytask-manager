@@ -598,7 +598,6 @@ async def websocket_endpoint(
 ):
     """WebSocket endpoint for real-time script execution."""
     logger.info("WebSocket connection initiated")
-    output_buffer = []
     
     try:
         await websocket.accept()
@@ -626,71 +625,65 @@ async def websocket_endpoint(
         # Create script manager to read output
         manager = ScriptManager(script_id, base_dir=str(settings.scripts_dir))
         last_status = execution.status
-        has_sent_initial = False
+        last_position = 0
+        
+        # Send initial connection message
+        await websocket.send_text("Connected to execution stream...")
+        logger.info("Sent initial connection message")
         
         try:
-            # Send initial connection message
-            await websocket.send_text("Connected to execution stream...")
-            has_sent_initial = True
-            logger.info("Sent initial connection message")
+            output_file = manager.script_dir / f"output_{execution.id}.txt"
             
-            # Stream output from the running execution
-            async for output in manager.read_output(execution.id):
-                if not output:
-                    continue
-                
-                logger.debug(f"Received output: {output!r}")
-                output_buffer.append(output)
-                
-                # Send buffered output
-                if output_buffer:
-                    try:
-                        for line in output_buffer:
-                            await websocket.send_text(line)
-                            logger.debug(f"Sent output: {line!r}")
-                        output_buffer.clear()
-                    except WebSocketDisconnect:
-                        logger.warning("WebSocket disconnected during streaming")
-                        return
-                    except Exception as e:
-                        logger.error(f"Error sending output: {e}")
-                        return
-                
-                # Check if execution status has changed
+            while True:
+                # Check if execution is still running
                 await session.refresh(execution)
-                if execution.status != last_status:
-                    status_message = f"STATUS: {execution.status}"
+                current_status = execution.status
+                
+                # Send status update if changed
+                if current_status != last_status:
+                    status_message = f"STATUS: {current_status}"
                     if execution.error_message:
                         status_message += f" - {execution.error_message}"
-                    try:
-                        await websocket.send_text(status_message)
-                        logger.info(f"Sent status update: {status_message}")
-                    except Exception as e:
-                        logger.error(f"Error sending status update: {e}")
-                        return
-                    last_status = execution.status
+                    await websocket.send_text(status_message)
+                    logger.info(f"Sent status update: {status_message}")
+                    last_status = current_status
                 
-                # If execution is complete, send final message and close
-                if execution.status not in [ExecutionStatus.PENDING, ExecutionStatus.RUNNING]:
-                    # Send any remaining buffered output
-                    if output_buffer:
-                        try:
-                            for line in output_buffer:
-                                await websocket.send_text(line)
-                            output_buffer.clear()
-                        except Exception as e:
-                            logger.error(f"Error sending final buffered output: {e}")
-                    
+                # Read new content from output file
+                if output_file.exists():
                     try:
-                        await websocket.send_text("Execution finished.")
-                        logger.info("Sent execution finished message")
-                        return
+                        with open(output_file, "r") as f:
+                            f.seek(last_position)
+                            new_content = f.read()
+                            if new_content:
+                                logger.debug(f"Read new content from position {last_position}: {new_content!r}")
+                                last_position = f.tell()
+                                await websocket.send_text(new_content)
                     except Exception as e:
-                        logger.error(f"Error sending finished message: {e}")
-                        return
+                        logger.error(f"Error reading output file: {e}")
+                
+                # Break if execution is complete
+                if current_status not in [ExecutionStatus.PENDING, ExecutionStatus.RUNNING]:
+                    # One final read attempt
+                    if output_file.exists():
+                        try:
+                            with open(output_file, "r") as f:
+                                f.seek(last_position)
+                                remaining = f.read()
+                                if remaining:
+                                    logger.debug(f"Sending final content: {remaining!r}")
+                                    await websocket.send_text(remaining)
+                        except Exception as e:
+                            logger.error(f"Error reading final output: {e}")
+                    break
                 
                 await asyncio.sleep(0.01)  # Small delay to prevent busy waiting
-                
+            
+            # Send finished message
+            await websocket.send_text("Execution finished.")
+            logger.info("Sent execution finished message")
+            
+        except WebSocketDisconnect:
+            logger.warning("WebSocket disconnected during streaming")
         except Exception as e:
             logger.exception("Error streaming output")
             try:
@@ -707,12 +700,6 @@ async def websocket_endpoint(
             pass
     finally:
         try:
-            if output_buffer:
-                try:
-                    for line in output_buffer:
-                        await websocket.send_text(line)
-                except:
-                    pass
             await websocket.close()
         except Exception as e:
             logger.error(f"Error closing WebSocket: {e}")
