@@ -587,11 +587,12 @@ async def websocket_endpoint(
     session: AsyncSession = Depends(get_session),
 ):
     """WebSocket endpoint for real-time script execution."""
-    logger.debug("WebSocket connection initiated")
-    await websocket.accept()
-    logger.debug("WebSocket connection accepted")
+    logger.info("WebSocket connection initiated")  # Changed to INFO for better visibility
     
     try:
+        await websocket.accept()
+        logger.info("WebSocket connection accepted")
+        
         # Get the most recent running execution for this script
         result = await session.execute(
             select(Execution)
@@ -609,7 +610,7 @@ async def websocket_endpoint(
             await websocket.close(code=1000, reason="No running execution found")
             return
             
-        logger.debug(f"Found running execution {execution.id}")
+        logger.info(f"Found running execution {execution.id}")
         
         # Create script manager to read output
         manager = ScriptManager(script_id, base_dir=str(settings.scripts_dir))
@@ -620,6 +621,7 @@ async def websocket_endpoint(
             # Stream output from the running execution
             async for output in manager.read_output(execution.id):
                 if not output:
+                    await asyncio.sleep(0.01)  # Small delay to prevent busy waiting
                     continue
                     
                 logger.debug(f"Received output: {output!r}")
@@ -636,6 +638,9 @@ async def websocket_endpoint(
                 except WebSocketDisconnect:
                     logger.warning("WebSocket disconnected during streaming")
                     break
+                except Exception as e:
+                    logger.error(f"Error sending output to WebSocket: {e}")
+                    break
                 
                 # Check if execution status has changed
                 await session.refresh(execution)
@@ -645,35 +650,39 @@ async def websocket_endpoint(
                         status_message += f" - {execution.error_message}"
                     try:
                         await websocket.send_text(status_message)
-                        logger.debug(f"Sent status update: {status_message}")
+                        logger.info(f"Sent status update: {status_message}")
                     except WebSocketDisconnect:
                         break
+                    except Exception as e:
+                        logger.error(f"Error sending status update: {e}")
+                        break
                     last_status = execution.status
-                    
+                
                 # If execution is complete, send final message and close
                 if execution.status not in [ExecutionStatus.PENDING, ExecutionStatus.RUNNING]:
                     try:
                         await websocket.send_text("Execution finished.")
-                        logger.debug("Sent execution finished message")
-                    except WebSocketDisconnect:
-                        pass
-                    break
-                    
-                # Small delay to prevent busy waiting
-                await asyncio.sleep(0.01)
+                        logger.info("Sent execution finished message")
+                        break
+                    except Exception as e:
+                        logger.error(f"Error sending finished message: {e}")
+                        break
+                
+                await asyncio.sleep(0.01)  # Small delay to prevent busy waiting
                 
         except Exception as e:
             logger.exception("Error streaming output")
             try:
                 await websocket.send_text(f"Error: {str(e)}")
-            except WebSocketDisconnect:
+            except:
                 pass
             
     except Exception as e:
         logger.exception("Error in WebSocket endpoint")
         try:
             await websocket.send_text(f"Error: {str(e)}")
-        except WebSocketDisconnect:
+            await websocket.close(code=1011, reason=str(e))
+        except:
             pass
     finally:
         try:

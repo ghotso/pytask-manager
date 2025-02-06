@@ -219,83 +219,59 @@ class ScriptManager:
             assert process.stdout is not None
             assert process.stderr is not None
 
-            try:
-                # Process stdout and stderr concurrently
-                while True:
-                    # Read from stdout and stderr
-                    stdout_task = asyncio.create_task(process.stdout.readline())
-                    stderr_task = asyncio.create_task(process.stderr.readline())
-                    
-                    done, pending = await asyncio.wait(
-                        [stdout_task, stderr_task],
-                        return_when=asyncio.FIRST_COMPLETED
-                    )
-                    
-                    # Cancel pending tasks
-                    for task in pending:
-                        task.cancel()
-                    
-                    # Process completed tasks
-                    for task in done:
-                        try:
-                            line = await task
-                            if not line:  # EOF
-                                continue
-                                
-                            if task == stdout_task:
-                                # Process stdout
-                                decoded_line = line.decode().rstrip('\n')
-                                output_line = f"{decoded_line}\n"
-                                logger.debug(f"Stdout: {output_line!r}")
-                                with open(output_file, "a") as f:
-                                    f.write(output_line)
-                                yield output_line
-                            else:
-                                # Process stderr
-                                decoded_line = line.decode().rstrip('\n')
-                                error_line = f"ERROR: {decoded_line}\n"
-                                logger.debug(f"Stderr: {error_line!r}")
-                                with open(output_file, "a") as f:
-                                    f.write(error_line)
-                                yield error_line
-                        except Exception as e:
-                            logger.error(f"Error processing output: {e}")
-                            continue
-                    
-                    # Check if process has ended
-                    if process.stdout.at_eof() and process.stderr.at_eof():
-                        break
-                    
-                    # Small delay to prevent busy waiting
-                    await asyncio.sleep(0.01)
+            # Process stdout and stderr concurrently
+            while True:
+                # Read from stdout and stderr
+                stdout_line = await process.stdout.readline()
+                stderr_line = await process.stderr.readline()
                 
-                # Wait for completion with timeout
-                try:
-                    await asyncio.wait_for(process.wait(), timeout=300)  # 5 minutes timeout
-                except asyncio.TimeoutError:
-                    logger.error("Script execution timed out after 5 minutes")
-                    if process.returncode is None:
-                        process.terminate()
-                        await asyncio.sleep(1)
-                        if process.returncode is None:
-                            process.kill()
-                    raise RuntimeError("Script execution timed out after 5 minutes")
-                
-                logger.debug(f"Process exited with return code {process.returncode}")
-                if process.returncode != 0:
-                    error_msg = f"Error: Script exited with return code {process.returncode}\n"
-                    logger.error(f"Script execution failed with return code {process.returncode}")
+                # Process stdout
+                if stdout_line:
+                    decoded_line = stdout_line.decode().rstrip('\n')
+                    output_line = f"{decoded_line}\n"
+                    logger.debug(f"Stdout: {output_line!r}")
                     with open(output_file, "a") as f:
-                        f.write(error_msg)
-                    yield error_msg
-
-            except Exception as e:
-                error_msg = f"Error: {str(e)}\n"
-                logger.exception("Error during script execution")
+                        f.write(output_line)
+                    yield output_line
+                
+                # Process stderr
+                if stderr_line:
+                    decoded_line = stderr_line.decode().rstrip('\n')
+                    error_line = f"ERROR: {decoded_line}\n"
+                    logger.debug(f"Stderr: {error_line!r}")
+                    with open(output_file, "a") as f:
+                        f.write(error_line)
+                    yield error_line
+                
+                # Check if process has ended and both streams are empty
+                if not stdout_line and not stderr_line:
+                    if process.returncode is not None:
+                        break
+                    await asyncio.sleep(0.01)  # Small delay to prevent busy waiting
+                
+                # Check if process has ended
+                if process.returncode is not None and process.stdout.at_eof() and process.stderr.at_eof():
+                    break
+            
+            # Wait for completion with timeout
+            try:
+                await asyncio.wait_for(process.wait(), timeout=300)  # 5 minutes timeout
+            except asyncio.TimeoutError:
+                logger.error("Script execution timed out after 5 minutes")
+                if process.returncode is None:
+                    process.terminate()
+                    await asyncio.sleep(1)
+                    if process.returncode is None:
+                        process.kill()
+                raise RuntimeError("Script execution timed out after 5 minutes")
+            
+            logger.debug(f"Process exited with return code {process.returncode}")
+            if process.returncode != 0:
+                error_msg = f"Error: Script exited with return code {process.returncode}\n"
+                logger.error(f"Script execution failed with return code {process.returncode}")
                 with open(output_file, "a") as f:
                     f.write(error_msg)
                 yield error_msg
-                raise  # Re-raise to ensure proper cleanup
 
         except Exception as e:
             error_msg = f"Error: {str(e)}\n"
@@ -303,7 +279,7 @@ class ScriptManager:
             with open(output_file, "a") as f:
                 f.write(error_msg)
             yield error_msg
-            raise
+            raise  # Re-raise to ensure proper cleanup
 
         finally:
             # Ensure process is terminated
