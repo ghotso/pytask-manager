@@ -4,6 +4,7 @@ from typing import List, Optional, cast
 from datetime import datetime, timezone
 import os
 from pathlib import Path
+import asyncio
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, BackgroundTasks
 from starlette.websockets import WebSocketDisconnect
@@ -588,7 +589,6 @@ async def websocket_endpoint(
     """WebSocket endpoint for real-time script execution."""
     logger.debug("WebSocket connection initiated")
     await websocket.accept()
-    await websocket.send_text("Connected to execution stream...")
     logger.debug("WebSocket connection accepted")
     
     try:
@@ -614,19 +614,28 @@ async def websocket_endpoint(
         # Create script manager to read output
         manager = ScriptManager(script_id, base_dir=str(settings.scripts_dir))
         last_status = execution.status
+        has_sent_initial = False
         
         try:
             # Stream output from the running execution
             async for output in manager.read_output(execution.id):
-                logger.debug(f"Received output: {output!r}")
-                
-                # Skip empty lines
-                if not output.strip():
+                if not output:
                     continue
                     
+                logger.debug(f"Received output: {output!r}")
+                
+                # Send initial connection message only once
+                if not has_sent_initial:
+                    await websocket.send_text("Connected to execution stream...")
+                    has_sent_initial = True
+                
                 try:
-                    await websocket.send_text(output)
-                    logger.debug("Sent output to WebSocket")
+                    # Send each line of output
+                    for line in output.splitlines(True):  # keepends=True to preserve newlines
+                        if line.strip():  # Skip empty lines
+                            if not line.startswith("STATUS:"):  # Don't send status messages from output
+                                await websocket.send_text(line)
+                                logger.debug(f"Sent line to WebSocket: {line!r}")
                 except WebSocketDisconnect:
                     logger.warning("WebSocket disconnected during streaming")
                     break
@@ -644,23 +653,17 @@ async def websocket_endpoint(
                         break
                     last_status = execution.status
                     
-                    # If execution is complete, break the loop
-                    if execution.status not in [ExecutionStatus.PENDING, ExecutionStatus.RUNNING]:
-                        break
-            
-            # Send final status if we haven't already
-            await session.refresh(execution)
-            if execution.status != last_status:
-                final_message = f"STATUS: {execution.status}"
-                if execution.error_message:
-                    final_message += f" - {execution.error_message}"
-                try:
-                    await websocket.send_text(final_message)
-                    logger.debug("Sent final status message")
-                except WebSocketDisconnect:
-                    pass
+                # If execution is complete, send final message and close
+                if execution.status not in [ExecutionStatus.PENDING, ExecutionStatus.RUNNING]:
+                    try:
+                        await websocket.send_text("Execution finished.")
+                        logger.debug("Sent execution finished message")
+                    except WebSocketDisconnect:
+                        pass
+                    break
                     
-            await websocket.send_text("Execution finished.")
+                # Small delay to prevent busy waiting
+                await asyncio.sleep(0.1)
                 
         except Exception as e:
             logger.exception("Error streaming output")
@@ -668,20 +671,18 @@ async def websocket_endpoint(
                 await websocket.send_text(f"Error: {str(e)}")
             except WebSocketDisconnect:
                 pass
-                
+            
     except Exception as e:
-        logger.exception("WebSocket endpoint error")
+        logger.exception("Error in WebSocket endpoint")
         try:
             await websocket.send_text(f"Error: {str(e)}")
         except WebSocketDisconnect:
             pass
-        
     finally:
         try:
             await websocket.close()
-            logger.debug("WebSocket connection closed")
-        except WebSocketDisconnect:
-            pass
+        except Exception as e:
+            logger.error(f"Error closing WebSocket: {e}")
 
 
 @router.post("/scripts/{script_id}/install-dependencies")

@@ -220,51 +220,45 @@ class ScriptManager:
             assert process.stderr is not None
 
             try:
-                # Process stdout and stderr concurrently with timeout
-                stdout_task = asyncio.create_task(self._collect_stream(process.stdout))
-                stderr_task = asyncio.create_task(self._collect_stream(process.stderr))
-                
-                # Wait for both streams to complete with timeout
-                try:
-                    stdout_lines, stderr_lines = await asyncio.wait_for(
-                        asyncio.gather(stdout_task, stderr_task),
-                        timeout=300  # 5 minutes timeout
-                    )
-                except asyncio.TimeoutError:
-                    logger.error("Script execution timed out after 5 minutes")
-                    if process.returncode is None:
-                        try:
-                            process.terminate()
-                            await asyncio.sleep(1)  # Give it a second to terminate
-                            if process.returncode is None:
-                                process.kill()  # Force kill if still running
-                        except Exception as e:
-                            logger.error(f"Error terminating process: {e}")
-                    raise RuntimeError("Script execution timed out after 5 minutes")
-                
-                # Write and yield stdout lines
-                for line in stdout_lines:
-                    logger.debug(f"Yielding stdout line: {line!r}")
-                    with open(output_file, "a") as f:
-                        f.write(line)
-                    yield line
-                
-                # Write and yield stderr lines
-                for line in stderr_lines:
-                    logger.debug(f"Yielding stderr line: {line!r}")
-                    error_line = f"ERROR: {line}"
-                    with open(output_file, "a") as f:
-                        f.write(error_line)
-                    yield error_line
+                # Process stdout and stderr concurrently
+                while True:
+                    # Read from stdout and stderr
+                    stdout_line = await process.stdout.readline()
+                    stderr_line = await process.stderr.readline()
+                    
+                    # Break if both streams are done
+                    if not stdout_line and not stderr_line:
+                        break
+                    
+                    # Process stdout
+                    if stdout_line:
+                        line = stdout_line.decode().rstrip('\n') + '\n'
+                        logger.debug(f"Stdout line: {line!r}")
+                        # Write to file immediately
+                        with open(output_file, "a") as f:
+                            f.write(line)
+                        yield line
+                    
+                    # Process stderr
+                    if stderr_line:
+                        line = f"ERROR: {stderr_line.decode().rstrip('\n')}\n"
+                        logger.debug(f"Stderr line: {line!r}")
+                        # Write to file immediately
+                        with open(output_file, "a") as f:
+                            f.write(line)
+                        yield line
                 
                 # Wait for completion with timeout
                 try:
-                    await asyncio.wait_for(process.wait(), timeout=10)  # 10 seconds to finish up
+                    await asyncio.wait_for(process.wait(), timeout=300)  # 5 minutes timeout
                 except asyncio.TimeoutError:
-                    logger.error("Process wait timed out")
+                    logger.error("Script execution timed out after 5 minutes")
                     if process.returncode is None:
-                        process.kill()
-                    raise RuntimeError("Process wait timed out")
+                        process.terminate()
+                        await asyncio.sleep(1)
+                        if process.returncode is None:
+                            process.kill()
+                    raise RuntimeError("Script execution timed out after 5 minutes")
                 
                 logger.debug(f"Process exited with return code {process.returncode}")
                 if process.returncode != 0:
