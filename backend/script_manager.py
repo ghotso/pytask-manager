@@ -481,6 +481,7 @@ class ScriptManager:
 
     async def read_output(self, execution_id: int) -> AsyncGenerator[str, None]:
         """Read output from a running execution."""
+        logger = logging.getLogger(__name__)
         output_file = self.script_dir / f"output_{execution_id}.txt"
         
         # Keep track of where we are in the file
@@ -522,11 +523,12 @@ class ScriptManager:
                                     # Process all complete lines
                                     for line in lines:
                                         if line.endswith('\n'):
+                                            logger.debug(f"Yielding line: {line!r}")
                                             yield line
                                         else:
                                             # Save incomplete line for next iteration
                                             last_incomplete_line = line
-                                            break
+                                            logger.debug(f"Saving incomplete line: {line!r}")
                         except Exception as e:
                             logger.error(f"Error reading output file: {e}")
                             # Don't break, try again next iteration
@@ -540,13 +542,16 @@ class ScriptManager:
                                     f.seek(position)
                                     remaining = f.read()
                                     if remaining:
+                                        if last_incomplete_line:
+                                            remaining = last_incomplete_line + remaining
+                                        logger.debug(f"Yielding final content: {remaining!r}")
                                         yield remaining
                             except Exception as e:
                                 logger.error(f"Error reading final output: {e}")
                         break
                 
                 # Small delay to prevent busy waiting
-                await asyncio.sleep(0.05)
+                await asyncio.sleep(0.01)
                 
             except Exception as e:
                 logger.error(f"Error reading output: {e}")
