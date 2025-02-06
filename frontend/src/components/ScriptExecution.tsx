@@ -14,7 +14,9 @@ export function ScriptExecution() {
   const [output, setOutput] = useState<string[]>([]);
   const outputRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
-  const executionIdRef = useRef<number | null>(null);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectAttemptsRef = useRef(0);
+  const MAX_RECONNECT_ATTEMPTS = 5;
 
   useEffect(() => {
     if (id) {
@@ -36,7 +38,11 @@ export function ScriptExecution() {
       wsRef.current.close();
       wsRef.current = null;
     }
-    executionIdRef.current = null;
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+    reconnectAttemptsRef.current = 0;
   };
 
   const loadScript = async (scriptId: number) => {
@@ -55,38 +61,60 @@ export function ScriptExecution() {
     }
   };
 
-  const setupWebSocket = (scriptId: number, executionId: number) => {
+  const setupWebSocket = (scriptId: number) => {
     // Clean up any existing connection
     cleanupWebSocket();
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const ws = new WebSocket(`${protocol}//${window.location.host}/api/scripts/${scriptId}/ws`);
     wsRef.current = ws;
-    executionIdRef.current = executionId;
 
     ws.onopen = () => {
       console.log('WebSocket connected');
+      reconnectAttemptsRef.current = 0; // Reset reconnect attempts on successful connection
     };
 
     ws.onmessage = (event) => {
-      setOutput((current) => [...current, event.data]);
+      const message = event.data;
+      console.log('Received message:', message);
+      
+      if (message === 'No running execution found') {
+        setIsExecuting(false);
+        return;
+      }
+      
+      setOutput((current) => [...current, message]);
+      
+      if (message === 'Execution finished.') {
+        setIsExecuting(false);
+      }
     };
 
     ws.onerror = (error) => {
       console.error('WebSocket error:', error);
-      notifications.show({
-        title: 'Error',
-        message: 'Failed to connect to execution stream',
-        color: 'red',
-      });
-      setIsExecuting(false);
-      cleanupWebSocket();
     };
 
-    ws.onclose = () => {
-      console.log('WebSocket closed');
-      setIsExecuting(false);
-      cleanupWebSocket();
+    ws.onclose = (event) => {
+      console.log('WebSocket closed:', event.code, event.reason);
+      wsRef.current = null;
+
+      // Only attempt to reconnect if we're still executing
+      if (isExecuting && reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 10000);
+        console.log(`Attempting to reconnect in ${delay}ms (attempt ${reconnectAttemptsRef.current + 1})`);
+        
+        reconnectTimeoutRef.current = setTimeout(() => {
+          reconnectAttemptsRef.current++;
+          setupWebSocket(scriptId);
+        }, delay);
+      } else if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
+        setIsExecuting(false);
+        notifications.show({
+          title: 'Connection Lost',
+          message: 'Failed to maintain connection to execution stream',
+          color: 'red',
+        });
+      }
     };
 
     return ws;
@@ -105,7 +133,7 @@ export function ScriptExecution() {
       console.log('Execution started with ID:', execution_id);
       
       // Setup WebSocket connection
-      setupWebSocket(parseInt(id), execution_id);
+      setupWebSocket(parseInt(id));
     } catch (error) {
       console.error('Failed to start execution:', error);
       notifications.show({
