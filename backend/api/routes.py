@@ -630,12 +630,9 @@ async def websocket_endpoint(
                     has_sent_initial = True
                 
                 try:
-                    # Send each line of output
-                    for line in output.splitlines(True):  # keepends=True to preserve newlines
-                        if line.strip():  # Skip empty lines
-                            if not line.startswith("STATUS:"):  # Don't send status messages from output
-                                await websocket.send_text(line)
-                                logger.debug(f"Sent line to WebSocket: {line!r}")
+                    # Send output immediately
+                    await websocket.send_text(output)
+                    logger.debug(f"Sent output to WebSocket: {output!r}")
                 except WebSocketDisconnect:
                     logger.warning("WebSocket disconnected during streaming")
                     break
@@ -663,7 +660,7 @@ async def websocket_endpoint(
                     break
                     
                 # Small delay to prevent busy waiting
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(0.01)
                 
         except Exception as e:
             logger.exception("Error streaming output")

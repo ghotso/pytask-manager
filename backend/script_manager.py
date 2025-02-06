@@ -223,31 +223,51 @@ class ScriptManager:
                 # Process stdout and stderr concurrently
                 while True:
                     # Read from stdout and stderr
-                    stdout_line = await process.stdout.readline()
-                    stderr_line = await process.stderr.readline()
+                    stdout_task = asyncio.create_task(process.stdout.readline())
+                    stderr_task = asyncio.create_task(process.stderr.readline())
                     
-                    # Break if both streams are done
-                    if not stdout_line and not stderr_line:
+                    done, pending = await asyncio.wait(
+                        [stdout_task, stderr_task],
+                        return_when=asyncio.FIRST_COMPLETED
+                    )
+                    
+                    # Cancel pending tasks
+                    for task in pending:
+                        task.cancel()
+                    
+                    # Process completed tasks
+                    for task in done:
+                        try:
+                            line = await task
+                            if not line:  # EOF
+                                continue
+                                
+                            if task == stdout_task:
+                                # Process stdout
+                                decoded_line = line.decode().rstrip('\n')
+                                output_line = f"{decoded_line}\n"
+                                logger.debug(f"Stdout: {output_line!r}")
+                                with open(output_file, "a") as f:
+                                    f.write(output_line)
+                                yield output_line
+                            else:
+                                # Process stderr
+                                decoded_line = line.decode().rstrip('\n')
+                                error_line = f"ERROR: {decoded_line}\n"
+                                logger.debug(f"Stderr: {error_line!r}")
+                                with open(output_file, "a") as f:
+                                    f.write(error_line)
+                                yield error_line
+                        except Exception as e:
+                            logger.error(f"Error processing output: {e}")
+                            continue
+                    
+                    # Check if process has ended
+                    if process.stdout.at_eof() and process.stderr.at_eof():
                         break
                     
-                    # Process stdout
-                    if stdout_line:
-                        line = stdout_line.decode().rstrip('\n') + '\n'
-                        logger.debug(f"Stdout line: {line!r}")
-                        # Write to file immediately
-                        with open(output_file, "a") as f:
-                            f.write(line)
-                        yield line
-                    
-                    # Process stderr
-                    if stderr_line:
-                        decoded_line = stderr_line.decode().rstrip('\n')
-                        line = f"ERROR: {decoded_line}\n"
-                        logger.debug(f"Stderr line: {line!r}")
-                        # Write to file immediately
-                        with open(output_file, "a") as f:
-                            f.write(line)
-                        yield line
+                    # Small delay to prevent busy waiting
+                    await asyncio.sleep(0.01)
                 
                 # Wait for completion with timeout
                 try:
