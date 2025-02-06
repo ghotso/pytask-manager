@@ -1,18 +1,19 @@
 """API routes for the application."""
-import logging
-from typing import List, Optional, cast
-from datetime import datetime, timezone
-import os
-from pathlib import Path
 import asyncio
+import logging
+import os
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import List, Optional, Dict, Any, cast
 
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, BackgroundTasks
+from fastapi import APIRouter, WebSocket, HTTPException, Depends, Query, BackgroundTasks
 from starlette.websockets import WebSocketDisconnect
 from pydantic import ValidationError, BaseModel
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from ..config import settings
 from ..database import get_session, get_session_context
 from ..models import Dependency, Execution, ExecutionStatus, Schedule, Script, Tag
 from ..scheduler import scheduler_service
@@ -20,11 +21,20 @@ from ..script_manager import ScriptManager
 from .models import (DependencyCreate, DependencyRead, ExecutionRead, ExecutionResponse,
                     ScheduleCreate, ScheduleRead, ScheduleUpdate, ScriptCreate,
                     ScriptRead, ScriptUpdate, TagCreate, TagRead)
-from ..config import settings
 
 logger = logging.getLogger(__name__)
-
 router = APIRouter()
+
+# Script manager instances
+script_managers: Dict[int, ScriptManager] = {}
+
+def get_script_manager(script_id: int) -> Optional[ScriptManager]:
+    """Get or create a script manager for the given script ID."""
+    return script_managers.get(script_id)
+
+async def get_execution(execution_id: int, session: AsyncSession = Depends(get_session)) -> Optional[Execution]:
+    """Get an execution by ID."""
+    return await session.get(Execution, execution_id)
 
 
 @router.get("/health")
@@ -933,3 +943,52 @@ async def _execute_script(script_id: int, execution_id: int) -> None:
                 manager.cleanup()
             except Exception as cleanup_error:
                 logger.error(f"Error cleaning up script manager: {cleanup_error}")
+
+
+@router.websocket("/api/executions/{execution_id}/output")
+async def stream_execution_output(websocket: WebSocket, execution_id: int):
+    """Stream execution output via WebSocket."""
+    logger.info(f"WebSocket connection initiated for execution {execution_id}")
+    await websocket.accept()
+    
+    try:
+        # Get execution
+        execution = await get_execution(execution_id)
+        if not execution:
+            logger.error(f"Execution {execution_id} not found")
+            await websocket.close(code=4004, reason="Execution not found")
+            return
+
+        # Get script manager
+        script_manager = get_script_manager(execution.script_id)
+        if not script_manager:
+            logger.error(f"Script manager not found for script {execution.script_id}")
+            await websocket.close(code=4004, reason="Script manager not found")
+            return
+
+        # Stream output
+        async for output in script_manager.read_output(execution_id):
+            try:
+                if output:  # Only send non-empty output
+                    logger.debug(f"Sending output: {output!r}")
+                    await websocket.send_text(output)
+            except Exception as e:
+                logger.error(f"Error sending output: {e}")
+                await websocket.close(code=4005, reason="Error sending output")
+                return
+
+        # Send final status message
+        try:
+            await websocket.send_text("Execution finished.")
+            await websocket.close(code=1000)
+        except Exception as e:
+            logger.error(f"Error sending final status: {e}")
+            await websocket.close(code=4006, reason="Error sending final status")
+    except Exception as e:
+        logger.error(f"Error in WebSocket connection: {e}")
+        try:
+            await websocket.close(code=4007, reason="Internal server error")
+        except Exception:
+            pass  # Connection might already be closed
+    finally:
+        logger.info(f"WebSocket connection closed for execution {execution_id}")

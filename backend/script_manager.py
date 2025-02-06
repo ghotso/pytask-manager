@@ -205,8 +205,8 @@ class ScriptManager:
                 logger.error(f"Script file not found: {script_file}")
                 raise FileNotFoundError(f"Script file not found: {script_file}")
             
-            # Create process
-            cmd = [str(self.python_path), str(script_file)]
+            # Create process with line buffering
+            cmd = [str(self.python_path), "-u", str(script_file)]  # Add -u for unbuffered output
             logger.debug(f"Running command: {' '.join(cmd)}")
             process = await asyncio.create_subprocess_exec(
                 *cmd,
@@ -230,8 +230,11 @@ class ScriptManager:
                     decoded_line = stdout_line.decode().rstrip('\n')
                     output_line = f"{decoded_line}\n"
                     logger.debug(f"Stdout: {output_line!r}")
+                    # Write and flush immediately
                     with open(output_file, "a") as f:
                         f.write(output_line)
+                        f.flush()
+                        os.fsync(f.fileno())  # Force write to disk
                     yield output_line
                 
                 # Process stderr
@@ -239,8 +242,11 @@ class ScriptManager:
                     decoded_line = stderr_line.decode().rstrip('\n')
                     error_line = f"ERROR: {decoded_line}\n"
                     logger.debug(f"Stderr: {error_line!r}")
+                    # Write and flush immediately
                     with open(output_file, "a") as f:
                         f.write(error_line)
+                        f.flush()
+                        os.fsync(f.fileno())  # Force write to disk
                     yield error_line
                 
                 # Check if process has ended and both streams are empty
@@ -271,6 +277,8 @@ class ScriptManager:
                 logger.error(f"Script execution failed with return code {process.returncode}")
                 with open(output_file, "a") as f:
                     f.write(error_msg)
+                    f.flush()
+                    os.fsync(f.fileno())
                 yield error_msg
 
         except Exception as e:
@@ -278,6 +286,8 @@ class ScriptManager:
             logger.exception("Error during script execution")
             with open(output_file, "a") as f:
                 f.write(error_msg)
+                f.flush()
+                os.fsync(f.fileno())
             yield error_msg
             raise  # Re-raise to ensure proper cleanup
 
@@ -485,42 +495,58 @@ class ScriptManager:
                     if not execution:
                         logger.error(f"Execution {execution_id} not found")
                         break
-                    if execution.status not in [ExecutionStatus.RUNNING, ExecutionStatus.PENDING]:
-                        # Read any remaining output
-                        if output_file.exists():
+                    
+                    is_finished = execution.status not in [ExecutionStatus.RUNNING, ExecutionStatus.PENDING]
+                    
+                    # Read new content if file exists
+                    if output_file.exists():
+                        try:
                             with open(output_file, "r") as f:
+                                # Seek to last position
                                 f.seek(position)
-                                content = f.read()
-                                if content:
-                                    yield content
+                                
+                                # Read any new content
+                                new_content = f.read()
+                                if new_content:
+                                    # Update position for next read
+                                    position = f.tell()
+                                    
+                                    # Process the content
+                                    if last_incomplete_line:
+                                        new_content = last_incomplete_line + new_content
+                                        last_incomplete_line = ""
+                                    
+                                    # Split into lines, preserving line endings
+                                    lines = new_content.splitlines(True)
+                                    
+                                    # Process all complete lines
+                                    for line in lines:
+                                        if line.endswith('\n'):
+                                            yield line
+                                        else:
+                                            # Save incomplete line for next iteration
+                                            last_incomplete_line = line
+                                            break
+                        except Exception as e:
+                            logger.error(f"Error reading output file: {e}")
+                            # Don't break, try again next iteration
+                    
+                    # If execution is finished and we've read all content, break
+                    if is_finished:
+                        # One final read attempt for any remaining content
+                        if output_file.exists():
+                            try:
+                                with open(output_file, "r") as f:
+                                    f.seek(position)
+                                    remaining = f.read()
+                                    if remaining:
+                                        yield remaining
+                            except Exception as e:
+                                logger.error(f"Error reading final output: {e}")
                         break
                 
-                # Read new content if file exists
-                if output_file.exists():
-                    with open(output_file, "r") as f:
-                        f.seek(position)
-                        while True:
-                            line = f.readline()
-                            if not line:
-                                position = f.tell()
-                                break
-                                
-                            # Process the line
-                            if line.endswith('\n'):
-                                # Complete line
-                                if last_incomplete_line:
-                                    line = last_incomplete_line + line
-                                    last_incomplete_line = ""
-                                yield line
-                            else:
-                                # Incomplete line, save for next iteration
-                                last_incomplete_line = line
-                                break
-                            
-                            position = f.tell()
-                
                 # Small delay to prevent busy waiting
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(0.05)
                 
             except Exception as e:
                 logger.error(f"Error reading output: {e}")
