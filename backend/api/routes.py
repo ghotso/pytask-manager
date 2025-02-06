@@ -597,7 +597,8 @@ async def websocket_endpoint(
     session: AsyncSession = Depends(get_session),
 ):
     """WebSocket endpoint for real-time script execution."""
-    logger.info("WebSocket connection initiated")  # Changed to INFO for better visibility
+    logger.info("WebSocket connection initiated")
+    output_buffer = []
     
     try:
         await websocket.accept()
@@ -628,29 +629,32 @@ async def websocket_endpoint(
         has_sent_initial = False
         
         try:
+            # Send initial connection message
+            await websocket.send_text("Connected to execution stream...")
+            has_sent_initial = True
+            logger.info("Sent initial connection message")
+            
             # Stream output from the running execution
             async for output in manager.read_output(execution.id):
                 if not output:
-                    await asyncio.sleep(0.01)  # Small delay to prevent busy waiting
                     continue
-                    
+                
                 logger.debug(f"Received output: {output!r}")
+                output_buffer.append(output)
                 
-                # Send initial connection message only once
-                if not has_sent_initial:
-                    await websocket.send_text("Connected to execution stream...")
-                    has_sent_initial = True
-                
-                try:
-                    # Send output immediately
-                    await websocket.send_text(output)
-                    logger.debug(f"Sent output to WebSocket: {output!r}")
-                except WebSocketDisconnect:
-                    logger.warning("WebSocket disconnected during streaming")
-                    break
-                except Exception as e:
-                    logger.error(f"Error sending output to WebSocket: {e}")
-                    break
+                # Send buffered output
+                if output_buffer:
+                    try:
+                        for line in output_buffer:
+                            await websocket.send_text(line)
+                            logger.debug(f"Sent output: {line!r}")
+                        output_buffer.clear()
+                    except WebSocketDisconnect:
+                        logger.warning("WebSocket disconnected during streaming")
+                        return
+                    except Exception as e:
+                        logger.error(f"Error sending output: {e}")
+                        return
                 
                 # Check if execution status has changed
                 await session.refresh(execution)
@@ -661,22 +665,29 @@ async def websocket_endpoint(
                     try:
                         await websocket.send_text(status_message)
                         logger.info(f"Sent status update: {status_message}")
-                    except WebSocketDisconnect:
-                        break
                     except Exception as e:
                         logger.error(f"Error sending status update: {e}")
-                        break
+                        return
                     last_status = execution.status
                 
                 # If execution is complete, send final message and close
                 if execution.status not in [ExecutionStatus.PENDING, ExecutionStatus.RUNNING]:
+                    # Send any remaining buffered output
+                    if output_buffer:
+                        try:
+                            for line in output_buffer:
+                                await websocket.send_text(line)
+                            output_buffer.clear()
+                        except Exception as e:
+                            logger.error(f"Error sending final buffered output: {e}")
+                    
                     try:
                         await websocket.send_text("Execution finished.")
                         logger.info("Sent execution finished message")
-                        break
+                        return
                     except Exception as e:
                         logger.error(f"Error sending finished message: {e}")
-                        break
+                        return
                 
                 await asyncio.sleep(0.01)  # Small delay to prevent busy waiting
                 
@@ -696,6 +707,12 @@ async def websocket_endpoint(
             pass
     finally:
         try:
+            if output_buffer:
+                try:
+                    for line in output_buffer:
+                        await websocket.send_text(line)
+                except:
+                    pass
             await websocket.close()
         except Exception as e:
             logger.error(f"Error closing WebSocket: {e}")

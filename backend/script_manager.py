@@ -522,6 +522,8 @@ class ScriptManager:
                                 # Read any new content
                                 new_content = f.read()
                                 if new_content:
+                                    logger.debug(f"Read new content from position {position}: {new_content!r}")
+                                    
                                     # Update position for next read
                                     position = f.tell()
                                     
@@ -529,6 +531,7 @@ class ScriptManager:
                                     if last_incomplete_line:
                                         new_content = last_incomplete_line + new_content
                                         last_incomplete_line = ""
+                                        logger.debug(f"Added incomplete line to content: {new_content!r}")
                                     
                                     # Split into lines, preserving line endings
                                     lines = new_content.splitlines(True)
@@ -536,7 +539,7 @@ class ScriptManager:
                                     # Process all complete lines
                                     for line in lines:
                                         if line.endswith('\n'):
-                                            logger.debug(f"Yielding line: {line!r}")
+                                            logger.debug(f"Yielding complete line: {line!r}")
                                             yield line
                                         else:
                                             # Save incomplete line for next iteration
@@ -546,7 +549,7 @@ class ScriptManager:
                             logger.error(f"Error reading output file: {e}")
                             # Don't break, try again next iteration
                     
-                    # If execution is finished and we've read all content, break
+                    # If execution is finished and we've read all content
                     if is_finished:
                         # One final read attempt for any remaining content
                         if output_file.exists():
@@ -555,9 +558,10 @@ class ScriptManager:
                                     f.seek(position)
                                     remaining = f.read()
                                     if remaining:
+                                        logger.debug(f"Reading final content: {remaining!r}")
                                         if last_incomplete_line:
                                             remaining = last_incomplete_line + remaining
-                                        logger.debug(f"Yielding final content: {remaining!r}")
+                                            logger.debug(f"Added incomplete line to final content: {remaining!r}")
                                         yield remaining
                             except Exception as e:
                                 logger.error(f"Error reading final output: {e}")
