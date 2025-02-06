@@ -484,6 +484,7 @@ class ScriptManager:
         
         # Keep track of where we are in the file
         position = 0
+        last_incomplete_line = ""
         
         while True:
             try:
@@ -507,10 +508,25 @@ class ScriptManager:
                 if output_file.exists():
                     with open(output_file, "r") as f:
                         f.seek(position)
-                        content = f.read()
-                        if content:
+                        while True:
+                            line = f.readline()
+                            if not line:
+                                position = f.tell()
+                                break
+                                
+                            # Process the line
+                            if line.endswith('\n'):
+                                # Complete line
+                                if last_incomplete_line:
+                                    line = last_incomplete_line + line
+                                    last_incomplete_line = ""
+                                yield line
+                            else:
+                                # Incomplete line, save for next iteration
+                                last_incomplete_line = line
+                                break
+                            
                             position = f.tell()
-                            yield content
                 
                 # Small delay to prevent busy waiting
                 await asyncio.sleep(0.1)

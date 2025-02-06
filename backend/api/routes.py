@@ -588,6 +588,7 @@ async def websocket_endpoint(
     """WebSocket endpoint for real-time script execution."""
     logger.debug("WebSocket connection initiated")
     await websocket.accept()
+    await websocket.send_text("Connected to execution stream...")
     logger.debug("WebSocket connection accepted")
     
     try:
@@ -604,6 +605,7 @@ async def websocket_endpoint(
         
         if not execution:
             logger.warning(f"No running execution found for script {script_id}")
+            await websocket.send_text("No running execution found")
             await websocket.close(code=1000, reason="No running execution found")
             return
             
@@ -617,6 +619,11 @@ async def websocket_endpoint(
             # Stream output from the running execution
             async for output in manager.read_output(execution.id):
                 logger.debug(f"Received output: {output!r}")
+                
+                # Skip empty lines
+                if not output.strip():
+                    continue
+                    
                 try:
                     await websocket.send_text(output)
                     logger.debug("Sent output to WebSocket")
@@ -636,6 +643,10 @@ async def websocket_endpoint(
                     except WebSocketDisconnect:
                         break
                     last_status = execution.status
+                    
+                    # If execution is complete, break the loop
+                    if execution.status not in [ExecutionStatus.PENDING, ExecutionStatus.RUNNING]:
+                        break
             
             # Send final status if we haven't already
             await session.refresh(execution)
@@ -648,6 +659,8 @@ async def websocket_endpoint(
                     logger.debug("Sent final status message")
                 except WebSocketDisconnect:
                     pass
+                    
+            await websocket.send_text("Execution finished.")
                 
         except Exception as e:
             logger.exception("Error streaming output")
