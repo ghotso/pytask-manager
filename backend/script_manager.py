@@ -33,21 +33,19 @@ async def _stream_generator(stream: asyncio.StreamReader, file: TextIO, is_stder
                     break
                     
                 decoded_line = line.decode().rstrip('\n')
-                if is_stderr:
-                    output_line = f"ERROR: {decoded_line}\n"
-                else:
-                    output_line = f"{decoded_line}\n"
                 
-                # Write immediately and flush
+                # For file writing, add ERROR: prefix for stderr
+                file_output_line = f"ERROR: {decoded_line}\n" if is_stderr else f"{decoded_line}\n"
+                
+                # Write to file with prefix for stderr
                 try:
-                    file.write(output_line)
+                    file.write(file_output_line)
                     await asyncio.to_thread(file.flush)  # Flush in thread to avoid blocking
                     os.fsync(file.fileno())  # Ensure data is written to disk
-                    yield output_line.rstrip('\n')  # Yield without newline for consistency
+                    yield decoded_line  # Yield without ERROR: prefix for real-time output
                 except IOError as e:
                     logger.error(f"Error writing to file: {e}")
-                    # Still yield the line even if file write failed
-                    yield output_line.rstrip('\n')
+                    yield decoded_line  # Still yield without ERROR: prefix
                 
             except asyncio.TimeoutError:
                 continue

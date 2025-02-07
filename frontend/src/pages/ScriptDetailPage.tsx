@@ -303,6 +303,12 @@ export function ScriptDetailPage() {
         const logLine = event.data.replace(/^ERROR: /, '');
         console.log('Received log line:', logLine);
         
+        // Handle execution finished message
+        if (logLine === 'Execution finished.') {
+          setIsExecuting(false);  // Ensure we set isExecuting to false
+          console.log('Execution finished, enabling close buttons');
+        }
+        
         setExecutionOutput(prev => {
           const newOutput = [...prev, logLine];
           console.log('Current output lines:', newOutput.length);
@@ -326,13 +332,13 @@ export function ScriptDetailPage() {
           message: 'Failed to connect to execution stream',
           color: 'red',
         });
-        setIsExecuting(false);
+        setIsExecuting(false);  // Also ensure we set isExecuting to false on error
       };
 
       ws.onclose = () => {
         console.log('WebSocket closed, execution finished');
         setExecutionOutput(prev => [...prev, 'Execution finished.']);
-        setIsExecuting(false);
+        setIsExecuting(false);  // Ensure we set isExecuting to false when WebSocket closes
         loadExecutions();  // Refresh execution list
       };
 
@@ -346,10 +352,8 @@ export function ScriptDetailPage() {
 
   const closeExecutionModal = () => {
     console.log('Closing execution modal, isExecuting:', isExecuting);
-    if (!isExecuting) {
-      setShowExecutionModal(false);
-      setExecutionOutput([]);
-    }
+    setShowExecutionModal(false);
+    setExecutionOutput([]);
   };
 
   const handleViewLogs = async (execution: Execution) => {

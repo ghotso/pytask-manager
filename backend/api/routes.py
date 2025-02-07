@@ -635,11 +635,12 @@ async def websocket_endpoint(
         last_status = execution.status
         output_file = manager.script_dir / f"output_{execution.id}.txt"
         
-        # Send initial connection message only once
+        # Send initial connection message only if not sent before
         initial_message = "Connected to execution stream..."
-        await websocket.send_text(initial_message)
-        sent_messages.add(initial_message)
-        logger.info("Sent initial connection message")
+        if initial_message not in sent_messages:
+            await websocket.send_text(initial_message)
+            sent_messages.add(initial_message)
+            logger.info("Sent initial connection message")
         
         # Wait for output file to be created (max 10 seconds)
         start_time = time.monotonic()
