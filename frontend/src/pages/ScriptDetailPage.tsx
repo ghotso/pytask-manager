@@ -16,7 +16,6 @@ import {
   Portal,
   ActionIcon,
   Title,
-  Modal,
   ScrollArea,
 } from '@mantine/core';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -1145,31 +1144,63 @@ export function ScriptDetailPage() {
       )}
 
       {/* Installation Logs Modal */}
-      <Modal
-        opened={showInstallationLogs}
-        onClose={() => !isInstalling && setShowInstallationLogs(false)}
-        title="Installing Dependencies"
-        size="xl"
-        styles={{
-          inner: { padding: 0 },
-          body: { padding: 0 },
-        }}
-      >
-        <ScrollArea h={400} type="auto" p="md">
-          <Code block style={{ whiteSpace: 'pre-wrap', background: '#1A1B1E' }}>
-            {installationLogs.join('\n')}
-          </Code>
-        </ScrollArea>
-        <Group justify="flex-end" p="md">
-          <Button
-            variant="light"
-            onClick={() => setShowInstallationLogs(false)}
-            disabled={isInstalling}
+      {showInstallationLogs && (
+        <Portal>
+          <div
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: 'rgba(0, 0, 0, 0.75)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 1000,
+            }}
           >
-            Close
-          </Button>
-        </Group>
-      </Modal>
+            <Paper
+              style={{
+                width: '90%',
+                maxWidth: '800px',
+                margin: '20px',
+                position: 'relative',
+              }}
+              p="md"
+            >
+              <Stack>
+                <Group justify="space-between" mb="md">
+                  <Title order={3}>Installing Dependencies</Title>
+                  <ActionIcon 
+                    onClick={() => !isInstalling && setShowInstallationLogs(false)}
+                    variant="subtle"
+                    disabled={isInstalling}
+                  >
+                    ✕
+                  </ActionIcon>
+                </Group>
+
+                <ScrollArea h={400} type="auto">
+                  <Code block style={{ whiteSpace: 'pre-wrap', background: '#1A1B1E' }}>
+                    {installationLogs.join('\n')}
+                  </Code>
+                </ScrollArea>
+
+                <Group justify="flex-end">
+                  <Button
+                    variant="light"
+                    onClick={() => setShowInstallationLogs(false)}
+                    disabled={isInstalling}
+                  >
+                    Close
+                  </Button>
+                </Group>
+              </Stack>
+            </Paper>
+          </div>
+        </Portal>
+      )}
     </Box>
   );
 } 
