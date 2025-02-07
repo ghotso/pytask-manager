@@ -17,6 +17,8 @@ export function ScriptExecution() {
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const MAX_RECONNECT_ATTEMPTS = 5;
+  const [hasFinished, setHasFinished] = useState(false);
+  const [isConnected, setIsConnected] = useState(false);
 
   useEffect(() => {
     if (id) {
@@ -43,6 +45,7 @@ export function ScriptExecution() {
       reconnectTimeoutRef.current = null;
     }
     reconnectAttemptsRef.current = 0;
+    setIsConnected(false);
   };
 
   const loadScript = async (scriptId: number) => {
@@ -71,8 +74,11 @@ export function ScriptExecution() {
 
     ws.onopen = () => {
       console.log('WebSocket connected');
-      reconnectAttemptsRef.current = 0; // Reset reconnect attempts on successful connection
-      setOutput(current => [...current, 'Connecting to execution stream...']);
+      reconnectAttemptsRef.current = 0;
+      setIsConnected(true);
+      if (!output.includes('Connecting to execution stream...')) {
+        setOutput(current => [...current, 'Connecting to execution stream...']);
+      }
     };
 
     ws.onmessage = (event) => {
@@ -81,6 +87,7 @@ export function ScriptExecution() {
       
       if (message === 'No running execution found') {
         setIsExecuting(false);
+        setHasFinished(true);
         notifications.show({
           title: 'No Running Execution',
           message: 'The script execution has already completed.',
@@ -89,34 +96,53 @@ export function ScriptExecution() {
         return;
       }
       
-      // Don't add duplicate connection messages
-      if (message === 'Connected to execution stream...' && output.includes('Connecting to execution stream...')) {
+      // Handle connection message
+      if (message === 'Connected to execution stream...') {
+        if (!output.includes('Connected to execution stream...')) {
+          setOutput(current => [...current, message]);
+        }
         return;
       }
       
-      setOutput((current) => [...current, message]);
-      
-      if (message === 'Execution finished.') {
-        setIsExecuting(false);
-        cleanupWebSocket(); // Clean up WebSocket after execution is done
+      // Handle status updates
+      if (message.startsWith('STATUS:')) {
+        setOutput(current => [...current, message]);
+        return;
       }
+      
+      // Handle execution finished message
+      if (message === 'Execution finished.') {
+        if (!hasFinished) {
+          setOutput(current => [...current, message]);
+          setIsExecuting(false);
+          setHasFinished(true);
+          cleanupWebSocket();
+        }
+        return;
+      }
+      
+      // Handle all other messages
+      setOutput(current => [...current, message]);
     };
 
     ws.onerror = (error) => {
       console.error('WebSocket error:', error);
-      notifications.show({
-        title: 'Connection Error',
-        message: 'Error connecting to execution stream. Will try to reconnect...',
-        color: 'yellow',
-      });
+      if (!hasFinished) {
+        notifications.show({
+          title: 'Connection Error',
+          message: 'Error connecting to execution stream. Will try to reconnect...',
+          color: 'yellow',
+        });
+      }
     };
 
     ws.onclose = (event) => {
       console.log('WebSocket closed:', event.code, event.reason);
       wsRef.current = null;
+      setIsConnected(false);
 
-      // Only attempt to reconnect if we're still executing and it wasn't a normal closure
-      if (isExecuting && event.code !== 1000 && reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
+      // Only attempt to reconnect if we're still executing, haven't finished, and it wasn't a normal closure
+      if (isExecuting && !hasFinished && event.code !== 1000 && reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
         const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 10000);
         console.log(`Attempting to reconnect in ${delay}ms (attempt ${reconnectAttemptsRef.current + 1})`);
         
@@ -126,7 +152,7 @@ export function ScriptExecution() {
           reconnectAttemptsRef.current++;
           setupWebSocket(scriptId);
         }, delay);
-      } else if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
+      } else if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS && !hasFinished) {
         setIsExecuting(false);
         notifications.show({
           title: 'Connection Lost',
@@ -144,6 +170,7 @@ export function ScriptExecution() {
     if (isExecuting) return; // Prevent multiple executions
 
     setIsExecuting(true);
+    setHasFinished(false);
     setOutput([]);
 
     try {
@@ -163,6 +190,7 @@ export function ScriptExecution() {
         color: 'red',
       });
       setIsExecuting(false);
+      setHasFinished(true);
       cleanupWebSocket();
     }
   };
@@ -191,8 +219,14 @@ export function ScriptExecution() {
             onClick={handleExecute}
             disabled={isExecuting}
             leftSection={<IconPlayerPlay size={16} />}
+            loading={isExecuting && !isConnected}
           >
-            {isExecuting ? 'Executing...' : 'Execute'}
+            {isExecuting 
+              ? isConnected 
+                ? 'Executing...' 
+                : 'Connecting...'
+              : 'Execute'
+            }
           </Button>
         </Group>
       </Group>
@@ -214,7 +248,10 @@ export function ScriptExecution() {
               style={{
                 fontFamily: 'monospace',
                 whiteSpace: 'pre-wrap',
-                color: '#d4d4d4',
+                color: line.startsWith('STATUS:') ? '#4CAF50' : 
+                       line.includes('Error:') ? '#f44336' : 
+                       line.includes('Connection lost') ? '#ff9800' : 
+                       '#d4d4d4',
               }}
             >
               {line}
@@ -222,7 +259,12 @@ export function ScriptExecution() {
           ))
         ) : (
           <Text c="dimmed" ta="center">
-            {isExecuting ? 'Waiting for output...' : 'Click Execute to run the script'}
+            {isExecuting 
+              ? isConnected 
+                ? 'Waiting for output...' 
+                : 'Connecting to execution stream...'
+              : 'Click Execute to run the script'
+            }
           </Text>
         )}
       </Paper>
