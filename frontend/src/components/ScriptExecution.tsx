@@ -72,6 +72,7 @@ export function ScriptExecution() {
     ws.onopen = () => {
       console.log('WebSocket connected');
       reconnectAttemptsRef.current = 0; // Reset reconnect attempts on successful connection
+      setOutput(current => [...current, 'Connecting to execution stream...']);
     };
 
     ws.onmessage = (event) => {
@@ -80,6 +81,16 @@ export function ScriptExecution() {
       
       if (message === 'No running execution found') {
         setIsExecuting(false);
+        notifications.show({
+          title: 'No Running Execution',
+          message: 'The script execution has already completed.',
+          color: 'blue',
+        });
+        return;
+      }
+      
+      // Don't add duplicate connection messages
+      if (message === 'Connected to execution stream...' && output.includes('Connecting to execution stream...')) {
         return;
       }
       
@@ -87,21 +98,29 @@ export function ScriptExecution() {
       
       if (message === 'Execution finished.') {
         setIsExecuting(false);
+        cleanupWebSocket(); // Clean up WebSocket after execution is done
       }
     };
 
     ws.onerror = (error) => {
       console.error('WebSocket error:', error);
+      notifications.show({
+        title: 'Connection Error',
+        message: 'Error connecting to execution stream. Will try to reconnect...',
+        color: 'yellow',
+      });
     };
 
     ws.onclose = (event) => {
       console.log('WebSocket closed:', event.code, event.reason);
       wsRef.current = null;
 
-      // Only attempt to reconnect if we're still executing
-      if (isExecuting && reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
+      // Only attempt to reconnect if we're still executing and it wasn't a normal closure
+      if (isExecuting && event.code !== 1000 && reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
         const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 10000);
         console.log(`Attempting to reconnect in ${delay}ms (attempt ${reconnectAttemptsRef.current + 1})`);
+        
+        setOutput(current => [...current, `Connection lost. Reconnecting in ${delay/1000} seconds...`]);
         
         reconnectTimeoutRef.current = setTimeout(() => {
           reconnectAttemptsRef.current++;
@@ -111,7 +130,7 @@ export function ScriptExecution() {
         setIsExecuting(false);
         notifications.show({
           title: 'Connection Lost',
-          message: 'Failed to maintain connection to execution stream',
+          message: 'Failed to maintain connection to execution stream. The script may still be running in the background.',
           color: 'red',
         });
       }
@@ -132,13 +151,15 @@ export function ScriptExecution() {
       const { execution_id } = await scriptsApi.execute(parseInt(id));
       console.log('Execution started with ID:', execution_id);
       
-      // Setup WebSocket connection
-      setupWebSocket(parseInt(id));
+      // Setup WebSocket connection with a small delay to ensure the backend is ready
+      setTimeout(() => {
+        setupWebSocket(parseInt(id));
+      }, 500);
     } catch (error) {
       console.error('Failed to start execution:', error);
       notifications.show({
         title: 'Error',
-        message: 'Failed to start script execution',
+        message: 'Failed to start script execution. Please check the execution history for details.',
         color: 'red',
       });
       setIsExecuting(false);
