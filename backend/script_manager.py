@@ -24,9 +24,6 @@ logger = logging.getLogger(__name__)
 async def _stream_generator(stream: asyncio.StreamReader, file: TextIO, is_stderr: bool) -> AsyncGenerator[str, None]:
     """Read from a stream and write to file."""
     logger = logging.getLogger(__name__)
-    buffer = []
-    flush_interval = 0.1  # Flush buffer every 100ms
-    last_flush = time.monotonic()
     
     try:
         while True:
@@ -41,62 +38,26 @@ async def _stream_generator(stream: asyncio.StreamReader, file: TextIO, is_stder
                 else:
                     output_line = f"{decoded_line}\n"
                 
-                # Add to buffer
-                buffer.append(output_line)
-                
-                # Flush buffer if interval elapsed or buffer is large
-                current_time = time.monotonic()
-                if current_time - last_flush >= flush_interval or len(buffer) >= 10:
-                    try:
-                        # Write buffered content with proper locking
-                        file.writelines(buffer)
-                        await asyncio.to_thread(file.flush)  # Flush in thread to avoid blocking
-                        os.fsync(file.fileno())  # Ensure data is written to disk
-                        
-                        # Yield each line
-                        for buffered_line in buffer:
-                            yield buffered_line
-                        
-                        # Clear buffer and update flush time
-                        buffer.clear()
-                        last_flush = current_time
-                    except IOError as e:
-                        logger.error(f"Error writing to file: {e}")
-                        # Don't raise, try to continue processing
-                        continue
+                # Write immediately and flush
+                try:
+                    file.write(output_line)
+                    await asyncio.to_thread(file.flush)  # Flush in thread to avoid blocking
+                    os.fsync(file.fileno())  # Ensure data is written to disk
+                    yield output_line.rstrip('\n')  # Yield without newline for consistency
+                except IOError as e:
+                    logger.error(f"Error writing to file: {e}")
+                    # Still yield the line even if file write failed
+                    yield output_line.rstrip('\n')
                 
             except asyncio.TimeoutError:
-                # Timeout on readline, check if we need to flush buffer
-                if buffer and time.monotonic() - last_flush >= flush_interval:
-                    try:
-                        file.writelines(buffer)
-                        await asyncio.to_thread(file.flush)
-                        os.fsync(file.fileno())
-                        
-                        for buffered_line in buffer:
-                            yield buffered_line
-                        
-                        buffer.clear()
-                        last_flush = time.monotonic()
-                    except IOError as e:
-                        logger.error(f"Error writing to file during timeout: {e}")
+                continue
+            except Exception as e:
+                logger.error(f"Error processing line: {e}")
                 continue
                 
     except Exception as e:
         logger.error(f"Error in stream generator: {e}")
         raise
-    finally:
-        # Flush any remaining content
-        if buffer:
-            try:
-                file.writelines(buffer)
-                await asyncio.to_thread(file.flush)
-                os.fsync(file.fileno())
-                
-                for buffered_line in buffer:
-                    yield buffered_line
-            except Exception as e:
-                logger.error(f"Error flushing final buffer: {e}")
 
 async def _stream_handler(stream: asyncio.StreamReader, file: TextIO, is_stderr: bool) -> List[str]:
     """Handle a single stream (stdout or stderr) and write to file."""

@@ -605,6 +605,7 @@ async def websocket_endpoint(
     file_handle = None
     last_position = 0
     execution = None
+    sent_messages = set()  # Track sent messages to prevent duplicates
     
     try:
         await websocket.accept()
@@ -635,7 +636,9 @@ async def websocket_endpoint(
         output_file = manager.script_dir / f"output_{execution.id}.txt"
         
         # Send initial connection message only once
-        await websocket.send_text("Connected to execution stream...")
+        initial_message = "Connected to execution stream..."
+        await websocket.send_text(initial_message)
+        sent_messages.add(initial_message)
         logger.info("Sent initial connection message")
         
         # Wait for output file to be created (max 10 seconds)
@@ -648,7 +651,7 @@ async def websocket_endpoint(
             await asyncio.sleep(0.1)
         
         try:
-            # Open file in binary mode for better buffering control
+            # Open file in binary mode for better buffering
             file_handle = open(output_file, "rb")
             
             while True:
@@ -662,8 +665,10 @@ async def websocket_endpoint(
                         status_message = f"STATUS: {current_status}"
                         if execution.error_message:
                             status_message += f" - {execution.error_message}"
-                        await websocket.send_text(status_message)
-                        logger.info(f"Sent status update: {status_message}")
+                        if status_message not in sent_messages:
+                            await websocket.send_text(status_message)
+                            sent_messages.add(status_message)
+                            logger.info(f"Sent status update: {status_message}")
                         last_status = current_status
                     
                     # Read new content line by line with proper error handling
@@ -679,14 +684,17 @@ async def websocket_endpoint(
                                 
                             try:
                                 decoded_line = line.decode().rstrip('\n')
-                                new_lines.append(decoded_line)
-                                chunk_size += len(line)
+                                if decoded_line and decoded_line not in sent_messages:
+                                    new_lines.append(decoded_line)
+                                    sent_messages.add(decoded_line)
+                                    chunk_size += len(line)
                                 
                                 # Send in chunks to avoid memory issues
                                 if chunk_size >= 8192 or len(new_lines) >= 100:
-                                    await websocket.send_text('\n'.join(new_lines))
-                                    new_lines = []
-                                    chunk_size = 0
+                                    if new_lines:
+                                        await websocket.send_text('\n'.join(new_lines))
+                                        new_lines = []
+                                        chunk_size = 0
                             except UnicodeDecodeError as e:
                                 logger.error(f"Error decoding line: {e}")
                                 continue
@@ -713,14 +721,21 @@ async def websocket_endpoint(
                             final_content = file_handle.read()
                             if final_content:
                                 try:
-                                    await websocket.send_text(final_content.decode().rstrip('\n'))
+                                    decoded_content = final_content.decode().rstrip('\n')
+                                    if decoded_content and decoded_content not in sent_messages:
+                                        await websocket.send_text(decoded_content)
+                                        sent_messages.add(decoded_content)
                                 except UnicodeDecodeError:
                                     logger.error("Error decoding final content")
                         except Exception as e:
                             logger.error(f"Error reading final content: {e}")
                         
-                        await websocket.send_text("Execution finished.")
-                        logger.info("Sent execution finished message")
+                        # Send execution finished message only once
+                        finish_message = "Execution finished."
+                        if finish_message not in sent_messages:
+                            await websocket.send_text(finish_message)
+                            sent_messages.add(finish_message)
+                            logger.info("Sent execution finished message")
                         break
                     
                     # Small delay to prevent busy waiting
@@ -735,7 +750,10 @@ async def websocket_endpoint(
         except Exception as e:
             logger.exception("Error streaming output")
             try:
-                await websocket.send_text(f"Error: {str(e)}")
+                error_message = f"Error: {str(e)}"
+                if error_message not in sent_messages:
+                    await websocket.send_text(error_message)
+                    sent_messages.add(error_message)
             except:
                 pass
         finally:
@@ -758,18 +776,6 @@ async def websocket_endpoint(
                 file_handle.close()
             except:
                 pass
-        
-        # Close WebSocket if still open
-        try:
-            await websocket.close()
-        except:
-            pass
-        
-        # Clean up session
-        try:
-            await session.close()
-        except:
-            pass
 
 
 @router.post("/scripts/{script_id}/install-dependencies")
