@@ -6,9 +6,27 @@ on:
       - main
     tags:
       - 'v*'
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - 'migrations/**'
+      - 'requirements.txt'
+      - 'Dockerfile'
+      - 'docker-compose.yml'
+      - 'run.py'
+      - '.dockerignore'
   pull_request:
     branches:
       - main
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - 'migrations/**'
+      - 'requirements.txt'
+      - 'Dockerfile'
+      - 'docker-compose.yml'
+      - 'run.py'
+      - '.dockerignore'
 
 env:
   REGISTRY: ghcr.io
