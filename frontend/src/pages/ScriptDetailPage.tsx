@@ -74,9 +74,10 @@ export function ScriptDetailPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isActive, setIsActive] = useState(true);
 
-  const [isInstalling, setIsInstalling] = useState(false);
-  const [installationLogs, setInstallationLogs] = useState<string[]>([]);
+  // Add modal state for installation logs
   const [showInstallationLogs, setShowInstallationLogs] = useState(false);
+  const [installationLogs, setInstallationLogs] = useState<string[]>([]);
+  const [isInstalling, setIsInstalling] = useState(false);
 
   useEffect(() => {
     if (script) {
@@ -404,44 +405,37 @@ export function ScriptDetailPage() {
   const handleInstallDependencies = async () => {
     try {
       setIsInstalling(true);
-      setInstallationLogs([]);
       setShowInstallationLogs(true);
+      setInstallationLogs([]);
 
-      // Start the installation process
+      // Start the installation
       await scriptsApi.installDependencies(Number(id));
 
-      // Connect to WebSocket for real-time logs
+      // Setup WebSocket connection for real-time logs
       const ws = new WebSocket(`${WS_BASE_URL}/api/scripts/${id}/dependencies/ws`);
 
       ws.onmessage = (event) => {
         const message = event.data;
         setInstallationLogs(prev => [...prev, message]);
+      };
 
-        // Check for completion message
-        if (message === 'Installation finished.') {
-          setIsInstalling(false);
-          ws.close();
-          // Refresh script data to get updated dependency versions
-          mutate();
-        }
+      ws.onclose = () => {
+        setIsInstalling(false);
+        // Refresh script data to show updated dependencies
+        mutate();
       };
 
       ws.onerror = (error) => {
         console.error('WebSocket error:', error);
         notifications.show({
           title: 'Error',
-          message: 'Failed to connect to installation log stream',
+          message: 'Failed to connect to log stream',
           color: 'red',
         });
         setIsInstalling(false);
       };
-
-      ws.onclose = () => {
-        console.log('WebSocket connection closed');
-        setIsInstalling(false);
-      };
     } catch (error) {
-      console.error('Error installing dependencies:', error);
+      console.error('Failed to install dependencies:', error);
       notifications.show({
         title: 'Error',
         message: 'Failed to start dependency installation',
@@ -1157,11 +1151,11 @@ export function ScriptDetailPage() {
         title="Installing Dependencies"
         size="xl"
         styles={{
-          title: { fontSize: '1.2rem', fontWeight: 500 },
+          inner: { padding: 0 },
           body: { padding: 0 },
         }}
       >
-        <ScrollArea h={400} p="md">
+        <ScrollArea h={400} type="auto" p="md">
           <Code block style={{ whiteSpace: 'pre-wrap', background: '#1A1B1E' }}>
             {installationLogs.join('\n')}
           </Code>
