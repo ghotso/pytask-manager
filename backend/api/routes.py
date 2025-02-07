@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional, Dict, Any, cast
@@ -597,7 +598,13 @@ async def websocket_endpoint(
     session: AsyncSession = Depends(get_session),
 ):
     """WebSocket endpoint for real-time script execution."""
+    logger = logging.getLogger(__name__)
     logger.info("WebSocket connection initiated")
+    
+    # Track file handle and position to prevent race conditions
+    file_handle = None
+    last_position = 0
+    execution = None
     
     try:
         await websocket.accept()
@@ -625,66 +632,103 @@ async def websocket_endpoint(
         # Create script manager to read output
         manager = ScriptManager(script_id, base_dir=str(settings.scripts_dir))
         last_status = execution.status
-        last_position = 0
         output_file = manager.script_dir / f"output_{execution.id}.txt"
-        
-        # Wait for output file to be created (max 5 seconds)
-        for _ in range(50):
-            if output_file.exists():
-                break
-            await asyncio.sleep(0.1)
         
         # Send initial connection message only once
         await websocket.send_text("Connected to execution stream...")
         logger.info("Sent initial connection message")
         
+        # Wait for output file to be created (max 10 seconds)
+        start_time = time.monotonic()
+        while not output_file.exists():
+            if time.monotonic() - start_time > 10:
+                logger.warning("Output file not created within timeout")
+                await websocket.send_text("Error: Output file not created within timeout")
+                return
+            await asyncio.sleep(0.1)
+        
         try:
+            # Open file in binary mode for better buffering control
+            file_handle = open(output_file, "rb")
+            
             while True:
-                # Check if execution is still running
-                await session.refresh(execution)
-                current_status = execution.status
-                
-                # Send status update if changed
-                if current_status != last_status:
-                    status_message = f"STATUS: {current_status}"
-                    if execution.error_message:
-                        status_message += f" - {execution.error_message}"
-                    await websocket.send_text(status_message)
-                    logger.info(f"Sent status update: {status_message}")
-                    last_status = current_status
-                
-                # Read new content from output file
-                if output_file.exists():
-                    try:
-                        with open(output_file, "r") as f:
-                            f.seek(last_position)
-                            new_content = f.read()
-                            if new_content:
-                                logger.debug(f"New content available: {len(new_content)} bytes")
-                                await websocket.send_text(new_content)
-                                last_position = f.tell()
-                    except Exception as e:
-                        logger.error(f"Error reading output file: {e}")
-                
-                # Break if execution is complete
-                if current_status not in [ExecutionStatus.PENDING, ExecutionStatus.RUNNING]:
-                    # One final read attempt
-                    if output_file.exists():
+                try:
+                    # Check if execution is still running
+                    await session.refresh(execution)
+                    current_status = execution.status
+                    
+                    # Send status update if changed
+                    if current_status != last_status:
+                        status_message = f"STATUS: {current_status}"
+                        if execution.error_message:
+                            status_message += f" - {execution.error_message}"
+                        await websocket.send_text(status_message)
+                        logger.info(f"Sent status update: {status_message}")
+                        last_status = current_status
+                    
+                    # Read new content line by line with proper error handling
+                    file_handle.seek(last_position)
+                    new_lines = []
+                    chunk_size = 0
+                    
+                    while True:
                         try:
-                            with open(output_file, "r") as f:
-                                f.seek(last_position)
-                                remaining = f.read()
-                                if remaining:
-                                    logger.debug(f"Sending final content: {len(remaining)} bytes")
-                                    await websocket.send_text(remaining)
+                            line = file_handle.readline()
+                            if not line:  # EOF
+                                break
+                                
+                            try:
+                                decoded_line = line.decode().rstrip('\n')
+                                new_lines.append(decoded_line)
+                                chunk_size += len(line)
+                                
+                                # Send in chunks to avoid memory issues
+                                if chunk_size >= 8192 or len(new_lines) >= 100:
+                                    await websocket.send_text('\n'.join(new_lines))
+                                    new_lines = []
+                                    chunk_size = 0
+                            except UnicodeDecodeError as e:
+                                logger.error(f"Error decoding line: {e}")
+                                continue
+                        except IOError as e:
+                            logger.error(f"Error reading from file: {e}")
+                            await asyncio.sleep(0.1)  # Back off on IO errors
+                            break
+                    
+                    # Send any remaining lines
+                    if new_lines:
+                        try:
+                            await websocket.send_text('\n'.join(new_lines))
                         except Exception as e:
-                            logger.error(f"Error reading final output: {e}")
-                    # Send finished message only once
-                    await websocket.send_text("Execution finished.")
-                    logger.info("Sent execution finished message")
-                    break
-                
-                await asyncio.sleep(0.1)  # Increased delay to reduce CPU usage
+                            logger.error(f"Error sending remaining lines: {e}")
+                    
+                    # Update position only after successful read
+                    last_position = file_handle.tell()
+                    
+                    # If execution is complete and we've read everything, break
+                    if current_status not in [ExecutionStatus.PENDING, ExecutionStatus.RUNNING]:
+                        # Do one final read with error handling
+                        try:
+                            file_handle.seek(last_position)
+                            final_content = file_handle.read()
+                            if final_content:
+                                try:
+                                    await websocket.send_text(final_content.decode().rstrip('\n'))
+                                except UnicodeDecodeError:
+                                    logger.error("Error decoding final content")
+                        except Exception as e:
+                            logger.error(f"Error reading final content: {e}")
+                        
+                        await websocket.send_text("Execution finished.")
+                        logger.info("Sent execution finished message")
+                        break
+                    
+                    # Small delay to prevent busy waiting
+                    await asyncio.sleep(0.1)
+                    
+                except Exception as e:
+                    logger.error(f"Error in main loop: {e}")
+                    await asyncio.sleep(1)  # Back off on errors
             
         except WebSocketDisconnect:
             logger.warning("WebSocket disconnected during streaming")
@@ -694,19 +738,38 @@ async def websocket_endpoint(
                 await websocket.send_text(f"Error: {str(e)}")
             except:
                 pass
+        finally:
+            if file_handle:
+                try:
+                    file_handle.close()
+                except:
+                    pass
             
     except Exception as e:
         logger.exception("Error in WebSocket endpoint")
         try:
-            await websocket.send_text(f"Error: {str(e)}")
             await websocket.close(code=1011, reason=str(e))
         except:
             pass
     finally:
+        # Ensure cleanup of resources
+        if file_handle:
+            try:
+                file_handle.close()
+            except:
+                pass
+        
+        # Close WebSocket if still open
         try:
             await websocket.close()
-        except Exception as e:
-            logger.error(f"Error closing WebSocket: {e}")
+        except:
+            pass
+        
+        # Clean up session
+        try:
+            await session.close()
+        except:
+            pass
 
 
 @router.post("/scripts/{script_id}/install-dependencies")

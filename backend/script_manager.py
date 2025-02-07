@@ -6,8 +6,10 @@ import sys
 import venv
 from datetime import datetime
 from pathlib import Path
-from typing import AsyncGenerator, List, Optional, Dict
+from typing import AsyncGenerator, List, Optional, Dict, Any, Coroutine
 import time
+from typing import IO as TextIO
+import io
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +20,106 @@ from .models import Dependency, Execution, ExecutionStatus, Script
 
 logger = logging.getLogger(__name__)
 
+
+async def _stream_generator(stream: asyncio.StreamReader, file: TextIO, is_stderr: bool) -> AsyncGenerator[str, None]:
+    """Read from a stream and write to file."""
+    logger = logging.getLogger(__name__)
+    buffer = []
+    flush_interval = 0.1  # Flush buffer every 100ms
+    last_flush = time.monotonic()
+    
+    try:
+        while True:
+            try:
+                line = await asyncio.wait_for(stream.readline(), timeout=1.0)
+                if not line:
+                    break
+                    
+                decoded_line = line.decode().rstrip('\n')
+                if is_stderr:
+                    output_line = f"ERROR: {decoded_line}\n"
+                else:
+                    output_line = f"{decoded_line}\n"
+                
+                # Add to buffer
+                buffer.append(output_line)
+                
+                # Flush buffer if interval elapsed or buffer is large
+                current_time = time.monotonic()
+                if current_time - last_flush >= flush_interval or len(buffer) >= 10:
+                    try:
+                        # Write buffered content with proper locking
+                        file.writelines(buffer)
+                        await asyncio.to_thread(file.flush)  # Flush in thread to avoid blocking
+                        os.fsync(file.fileno())  # Ensure data is written to disk
+                        
+                        # Yield each line
+                        for buffered_line in buffer:
+                            yield buffered_line
+                        
+                        # Clear buffer and update flush time
+                        buffer.clear()
+                        last_flush = current_time
+                    except IOError as e:
+                        logger.error(f"Error writing to file: {e}")
+                        # Don't raise, try to continue processing
+                        continue
+                
+            except asyncio.TimeoutError:
+                # Timeout on readline, check if we need to flush buffer
+                if buffer and time.monotonic() - last_flush >= flush_interval:
+                    try:
+                        file.writelines(buffer)
+                        await asyncio.to_thread(file.flush)
+                        os.fsync(file.fileno())
+                        
+                        for buffered_line in buffer:
+                            yield buffered_line
+                        
+                        buffer.clear()
+                        last_flush = time.monotonic()
+                    except IOError as e:
+                        logger.error(f"Error writing to file during timeout: {e}")
+                continue
+                
+    except Exception as e:
+        logger.error(f"Error in stream generator: {e}")
+        raise
+    finally:
+        # Flush any remaining content
+        if buffer:
+            try:
+                file.writelines(buffer)
+                await asyncio.to_thread(file.flush)
+                os.fsync(file.fileno())
+                
+                for buffered_line in buffer:
+                    yield buffered_line
+            except Exception as e:
+                logger.error(f"Error flushing final buffer: {e}")
+
+async def _stream_handler(stream: asyncio.StreamReader, file: TextIO, is_stderr: bool) -> List[str]:
+    """Handle a single stream (stdout or stderr) and write to file."""
+    logger = logging.getLogger(__name__)
+    output_lines = []
+    
+    try:
+        async for line in _stream_generator(stream, file, is_stderr):
+            output_lines.append(line)
+    except Exception as e:
+        logger.error(f"Error in stream handler: {e}")
+        raise
+    finally:
+        # Ensure stream is properly closed
+        try:
+            stream.feed_eof()  # Signal EOF to the stream
+            # Drain any remaining data
+            while not stream.at_eof():
+                await stream.read()
+        except Exception as e:
+            logger.error(f"Error closing stream: {e}")
+    
+    return output_lines
 
 class ScriptManager:
     """Manages script execution in isolated environments."""
@@ -167,160 +269,151 @@ class ScriptManager:
         if stdout:
             logger.debug(f"Pip output: {stdout.decode()}")
 
-    async def _collect_stream(self, stream: asyncio.StreamReader) -> List[str]:
-        """Collect all lines from a stream with timeout per line."""
-        lines = []
-        while True:
-            try:
-                # Read each line with a timeout
-                try:
-                    line = await asyncio.wait_for(stream.readline(), timeout=10)  # 10 seconds per line
-                except asyncio.TimeoutError:
-                    logger.warning("Timeout reading stream line")
-                    break
-                
-                if not line:
-                    break
-                
-                text = line.decode().rstrip('\n')
-                logger.debug(f"Collected line: {text!r}")
-                lines.append(text + '\n')
-            
-            except Exception as e:
-                logger.error(f"Error reading stream: {e}")
-                break
-            
-        return lines
-
     async def execute(self, execution_id: int) -> AsyncGenerator[str, None]:
         """Execute the script and stream its output."""
         logger = logging.getLogger(__name__)
-        logger.info(f"Executing script {self.script_id}")
         process = None
-        output_file = self.script_dir / f"output_{execution_id}.txt"
+        stdout_task = None
+        stderr_task = None
+        output_file = None
+        binary_file = None
         
         try:
-            # Ensure script file exists
-            script_file = self.script_dir / "script.py"
-            if not script_file.exists():
-                logger.error(f"Script file not found: {script_file}")
-                raise FileNotFoundError(f"Script file not found: {script_file}")
+            # Ensure script exists
+            script_path = self.script_dir / "script.py"
+            if not script_path.exists():
+                raise FileNotFoundError(f"Script file not found: {script_path}")
             
-            # Create process with line buffering
-            cmd = [str(self.python_path), "-u", str(script_file)]  # Add -u for unbuffered output
-            logger.debug(f"Running command: {' '.join(cmd)}")
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=str(self.script_dir)
+            # Create output file path
+            output_path = self.script_dir / f"output_{execution_id}.txt"
+            
+            # Open output file in binary mode first for better buffering
+            binary_file = open(output_path, "wb", buffering=0)  # Unbuffered binary stream
+            output_file = io.TextIOWrapper(
+                binary_file,
+                encoding='utf-8',
+                write_through=True,  # Ensure writes go directly to the binary stream
+                line_buffering=True  # Enable line buffering
             )
             
-            # Stream output with timeout
-            assert process.stdout is not None
-            assert process.stderr is not None
-
-            # Open output file in write mode
-            with open(output_file, "w") as f:
-                while True:
-                    # Read from stdout and stderr
-                    try:
-                        stdout_line = await process.stdout.readline()
-                        stderr_line = await process.stderr.readline()
-                        
-                        # Process stdout
-                        if stdout_line:
-                            decoded_line = stdout_line.decode().rstrip('\n')
-                            output_line = f"{decoded_line}\n"
-                            logger.debug(f"Stdout: {output_line!r}")
-                            f.write(output_line)
-                            f.flush()
-                            os.fsync(f.fileno())  # Force write to disk
-                            yield output_line
-                        
-                        # Process stderr
-                        if stderr_line:
-                            decoded_line = stderr_line.decode().rstrip('\n')
-                            error_line = f"ERROR: {decoded_line}\n"
-                            logger.debug(f"Stderr: {error_line!r}")
-                            f.write(error_line)
-                            f.flush()
-                            os.fsync(f.fileno())  # Force write to disk
-                            yield error_line
-                        
-                        # Check if process has ended and both streams are empty
-                        if not stdout_line and not stderr_line:
-                            if process.returncode is not None:
-                                break
-                            await asyncio.sleep(0.01)  # Small delay to prevent busy waiting
-                        
-                        # Check if process has ended
-                        if process.returncode is not None and process.stdout.at_eof() and process.stderr.at_eof():
-                            break
-                    except Exception as e:
-                        logger.error(f"Error processing output: {e}")
-                        error_msg = f"Error processing output: {str(e)}\n"
-                        f.write(error_msg)
-                        f.flush()
-                        os.fsync(f.fileno())
-                        yield error_msg
-                        break
-            
-            # Wait for completion with timeout
+            # Create subprocess with timeout handling
             try:
-                await asyncio.wait_for(process.wait(), timeout=300)  # 5 minutes timeout
-            except asyncio.TimeoutError:
-                logger.error("Script execution timed out after 5 minutes")
-                if process.returncode is None:
-                    process.terminate()
-                    await asyncio.sleep(1)
-                    if process.returncode is None:
-                        process.kill()
-                error_msg = "Error: Script execution timed out after 5 minutes\n"
-                with open(output_file, "a") as f:
-                    f.write(error_msg)
-                    f.flush()
-                    os.fsync(f.fileno())
-                yield error_msg
-                raise RuntimeError("Script execution timed out after 5 minutes")
+                process = await asyncio.create_subprocess_exec(
+                    str(self.python_path),
+                    "-u",  # Unbuffered output
+                    str(script_path),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    env=os.environ.copy(),
+                    limit=8192  # Limit subprocess pipe buffer size
+                )
+                
+                if process.stdout is None or process.stderr is None:
+                    raise RuntimeError("Failed to create subprocess pipes")
+                
+                # Set up stream tasks with timeout
+                try:
+                    stdout_task = asyncio.create_task(
+                        _stream_handler(process.stdout, output_file, False)
+                    )
+                    stderr_task = asyncio.create_task(
+                        _stream_handler(process.stderr, output_file, True)
+                    )
+                    
+                    # Wait for process with timeout
+                    try:
+                        await asyncio.wait_for(process.wait(), timeout=settings.max_execution_time)
+                    except asyncio.TimeoutError:
+                        logger.error("Script execution timed out")
+                        yield "Error: Script execution timed out after {settings.max_execution_time} seconds\n"
+                        raise RuntimeError(f"Script timed out after {settings.max_execution_time} seconds")
+                    
+                    # Wait for stream tasks to complete with timeout
+                    try:
+                        stdout_result, stderr_result = await asyncio.gather(
+                            stdout_task,
+                            stderr_task,
+                            return_exceptions=True
+                        )
+                        
+                        # Check for task exceptions
+                        for result in [stdout_result, stderr_result]:
+                            if isinstance(result, Exception):
+                                logger.error(f"Stream task failed: {result}")
+                                raise result
+                        
+                    except Exception as e:
+                        logger.error(f"Error in stream tasks: {e}")
+                        raise
+                    
+                    # Check process return code
+                    if process.returncode != 0:
+                        error_msg = f"Error: Script exited with return code {process.returncode}\n"
+                        output_file.write(error_msg)
+                        output_file.flush()
+                        yield error_msg
+                    
+                    # Read and yield output
+                    try:
+                        with open(output_path, 'r') as f:
+                            content = f.read()
+                            if content:
+                                yield content
+                    except Exception as e:
+                        logger.error(f"Error reading output file: {e}")
+                        raise
+                    
+                except Exception as e:
+                    logger.error(f"Error during execution: {e}")
+                    raise
+                
+            except Exception as e:
+                logger.error(f"Error in execute: {e}")
+                raise
             
-            logger.debug(f"Process exited with return code {process.returncode}")
-            if process.returncode != 0:
-                error_msg = f"Error: Script exited with return code {process.returncode}\n"
-                logger.error(f"Script execution failed with return code {process.returncode}")
-                with open(output_file, "a") as f:
-                    f.write(error_msg)
-                    f.flush()
-                    os.fsync(f.fileno())
-                yield error_msg
-
         except Exception as e:
-            error_msg = f"Error: {str(e)}\n"
-            logger.exception("Error during script execution")
-            with open(output_file, "a") as f:
-                f.write(error_msg)
-                f.flush()
-                os.fsync(f.fileno())
-            yield error_msg
-            raise  # Re-raise to ensure proper cleanup
-
+            logger.error(f"Error in execute: {e}")
+            raise
+        
         finally:
-            # Ensure process is terminated
-            if process is not None and process.returncode is None:
+            # Clean up resources in reverse order of creation
+            if stdout_task and not stdout_task.done():
+                stdout_task.cancel()
+            if stderr_task and not stderr_task.done():
+                stderr_task.cancel()
+            
+            # Close file handles
+            if output_file:
+                try:
+                    output_file.flush()
+                    output_file.close()
+                except:
+                    pass
+            if binary_file:
+                try:
+                    binary_file.close()
+                except:
+                    pass
+            
+            # Terminate process if still running
+            if process and process.returncode is None:
                 try:
                     process.terminate()
-                    await asyncio.sleep(1)  # Give it a second to terminate
-                    if process.returncode is None:
-                        process.kill()  # Force kill if still running
+                    try:
+                        # Wait for process to terminate
+                        await asyncio.wait_for(process.wait(), timeout=5.0)
+                    except asyncio.TimeoutError:
+                        # Force kill if terminate doesn't work
+                        process.kill()
+                        await process.wait()
                 except Exception as e:
-                    logger.error(f"Error cleaning up process: {e}")
-            
-            # Clean up output file
-            try:
-                if output_file.exists():
-                    output_file.unlink()
-            except Exception as e:
-                logger.error(f"Error cleaning up output file: {e}")
+                    logger.error(f"Error terminating process: {e}")
+                    # Try force kill as last resort
+                    try:
+                        process.kill()
+                        await process.wait()
+                    except:
+                        pass
 
     def cleanup(self) -> None:
         """Clean up script environment."""
