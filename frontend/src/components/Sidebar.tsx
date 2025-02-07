@@ -4,8 +4,7 @@ import {
   IconPlus, 
   IconHistory, 
   IconBrandPython,
-  IconCode,
-  IconSettings
+  IconCode
 } from '@tabler/icons-react';
 
 export function Sidebar() {
@@ -119,34 +118,6 @@ export function Sidebar() {
             </Stack>
           </Box>
         </Stack>
-      </Box>
-
-      {/* Footer */}
-      <Box 
-        p="md" 
-        style={{ 
-          borderTop: '1px solid #2C2E33',
-          background: 'linear-gradient(0deg, #1A1B1E 0%, #141517 100%)'
-        }}
-      >
-        <NavLink
-          component={Link}
-          to="/settings"
-          label="Settings"
-          leftSection={<IconSettings size={18} />}
-          styles={{
-            root: {
-              borderRadius: '8px',
-              padding: '12px 16px',
-              color: '#C1C2C5',
-              transition: 'all 0.2s ease',
-              '&:hover': {
-                backgroundColor: '#25262B',
-                transform: 'translateX(4px)',
-              }
-            }
-          }}
-        />
       </Box>
     </Stack>
   );
