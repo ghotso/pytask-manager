@@ -266,11 +266,11 @@ export function ScriptDetailPage() {
 
   const loadExecutions = async () => {
     try {
-      const data = await scriptsApi.listExecutions(scriptId);
-      console.log('Loaded executions:', data);
-      setExecutions(data);
-    } catch (err) {
-      handleApiError(err, 'loading executions');
+      if (!scriptId) return;
+      const executions = await scriptsApi.listExecutions(scriptId);
+      setExecutions(executions);
+    } catch (error) {
+      console.error('Failed to load executions:', error);
     }
   };
 
@@ -281,77 +281,47 @@ export function ScriptDetailPage() {
   }, [scriptId]);
 
   const handleRun = async () => {
-    if (!scriptId) return;
-
     try {
       setIsExecuting(true);
-      setExecutionOutput([]);
       setShowExecutionModal(true);
+      setExecutionOutput([]);
 
-      // First, start the script execution via HTTP
-      const executionResponse = await scriptsApi.execute(scriptId);
-      console.log('Script execution started:', executionResponse);
+      const response = await scriptsApi.execute(Number(id));
+      console.log('Execution started:', response);
 
-      // Then connect to WebSocket for live output
-      console.log('Connecting to WebSocket...');
-      const wsUrl = `${WS_BASE_URL}/api/scripts/${scriptId}/ws`;
-      console.log('WebSocket URL:', wsUrl);
-      
-      const ws = new WebSocket(wsUrl);
-      
-      ws.onopen = () => {
-        console.log('WebSocket connected, ready for live output');
-        setExecutionOutput(prev => [...prev, 'Connected to execution stream...']);
-      };
-      
-      ws.onmessage = (event) => {
-        const logLine = event.data.replace(/^ERROR: /, '');
-        console.log('Received log line:', logLine);
-        
-        // Handle execution finished message
-        if (logLine === 'Execution finished.') {
-          setIsExecuting(false);  // Ensure we set isExecuting to false
-          console.log('Execution finished, enabling close buttons');
+      const ws = new WebSocket(`${WS_BASE_URL}/api/scripts/${id}/ws`);
+
+      ws.onmessage = async (event) => {
+        const message = event.data;
+        setExecutionOutput(prev => [...prev, message]);
+
+        // Check for execution completion
+        if (message.includes('Execution finished.')) {
+          setIsExecuting(false);
+          // Load the updated execution history
+          await loadExecutions();
+          // Refresh script data to get latest status
+          mutate();
         }
-        
-        setExecutionOutput(prev => {
-          const newOutput = [...prev, logLine];
-          console.log('Current output lines:', newOutput.length);
-          return newOutput;
-        });
+      };
 
-        // Scroll to bottom on next render
-        requestAnimationFrame(() => {
-          const outputElement = document.querySelector('.execution-output');
-          if (outputElement) {
-            outputElement.scrollTop = outputElement.scrollHeight;
-          }
-        });
+      ws.onclose = () => {
+        console.log('WebSocket connection closed');
       };
 
       ws.onerror = (error) => {
         console.error('WebSocket error:', error);
-        setExecutionOutput(prev => [...prev, 'Error: Failed to connect to execution stream']);
+        setIsExecuting(false);
         notifications.show({
           title: 'Error',
-          message: 'Failed to connect to execution stream',
+          message: 'Failed to connect to execution log stream',
           color: 'red',
         });
-        setIsExecuting(false);  // Also ensure we set isExecuting to false on error
       };
-
-      ws.onclose = () => {
-        console.log('WebSocket closed, execution finished');
-        setExecutionOutput(prev => [...prev, 'Execution finished.']);
-        setIsExecuting(false);  // Ensure we set isExecuting to false when WebSocket closes
-        loadExecutions();  // Refresh execution list
-      };
-
-    } catch (err) {
-      console.error('Error in handleRun:', err);
-      setExecutionOutput(prev => [...prev, `Error: ${err instanceof Error ? err.message : 'Unknown error'}`]);
-      handleApiError(err, 'starting script execution');
+    } catch (error) {
+      console.error('Failed to execute script:', error);
       setIsExecuting(false);
+      handleApiError(error, 'executing script');
     }
   };
 
@@ -416,12 +386,17 @@ export function ScriptDetailPage() {
       ws.onmessage = (event) => {
         const message = event.data;
         setInstallationLogs(prev => [...prev, message]);
+        
+        // Check for installation completion message
+        if (message.includes('Installation finished.')) {
+          setIsInstalling(false);
+          // Refresh script data to show updated dependencies
+          mutate();
+        }
       };
 
       ws.onclose = () => {
-        setIsInstalling(false);
-        // Refresh script data to show updated dependencies
-        mutate();
+        console.log('WebSocket connection closed');
       };
 
       ws.onerror = (error) => {
