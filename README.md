@@ -5,25 +5,36 @@ A modern web application for managing, scheduling, and executing Python scripts 
 ## Features
 
 - 🐍 Python Script Management
-  - Write and edit Python scripts directly in the browser
-  - Syntax highlighting and code completion
-  - Real-time script execution with live output
-  - View execution history and logs
+  - Write and edit Python scripts directly in the browser with Monaco Editor
+  - Advanced syntax highlighting and code completion
+  - Real-time script execution with live output streaming
+  - Comprehensive execution history and detailed logs
+  - Script state management (active/inactive)
 
 - 📦 Dependency Management
   - Specify Python package dependencies for each script
-  - Automatic dependency installation and version management
-  - Virtual environment isolation for each script
+  - Real-time dependency installation progress monitoring
+  - Automatic virtual environment creation and management
+  - Version specification support (e.g., requests>=2.25.1)
+  - Dependency status tracking and updates
 
 - ⏰ Task Scheduling
-  - Schedule scripts using cron expressions
-  - Enable/disable scheduled executions
+  - Schedule scripts using cron expressions with human-readable descriptions
+  - Flexible scheduling management
   - View upcoming scheduled runs
+  - Timezone-aware scheduling
 
 - 🏷️ Organization
-  - Tag scripts for better organization
-  - Search and filter scripts by tags
-  - Add descriptions and metadata
+  - Tag-based script organization
+  - Advanced search and filtering capabilities
+  - Rich metadata support
+  - Clean and modern UI
+
+- 🔒 Security & Isolation
+  - Isolated script execution environments
+  - Secure dependency management
+  - Resource usage controls
+  - Error handling and logging
 
 ## Installation
 
@@ -106,26 +117,39 @@ services:
 
 ## Development Setup
 
-If you want to run the application in development mode:
+### Backend Setup
 
-1. Start the backend:
+1. Create and activate a virtual environment:
    ```bash
-   cd backend
    python -m venv venv
    source venv/bin/activate  # On Windows: venv\Scripts\activate
-   pip install -r requirements.txt
-   uvicorn main:app --reload --port 8000
    ```
 
-2. Start the frontend:
+2. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. Start the development server:
+   ```bash
+   python run.py --reload
+   ```
+
+### Frontend Setup
+
+1. Install dependencies:
    ```bash
    cd frontend
    npm install
+   ```
+
+2. Start the development server:
+   ```bash
    npm run dev
    ```
 
-The development server will be available at:
-- Frontend: `http://localhost:5173`
+The development servers will be available at:
+- Frontend: `http://localhost:3000`
 - Backend: `http://localhost:8000`
 
 ## Environment Variables
@@ -137,11 +161,11 @@ All environment variables are optional and have sensible defaults:
   - Docker default: `sqlite:///app/data/pytask.db`
 
 - `PYTASK_SCRIPTS_DIR`: Directory for storing Python scripts
-  - Default: `./data/scripts`
+  - Default: `./scripts`
   - Docker default: `/app/scripts`
 
 - `PYTASK_LOGS_DIR`: Directory for storing execution logs
-  - Default: `./data/logs`
+  - Default: `./logs`
   - Docker default: `/app/logs`
 
 - `PYTASK_DEBUG`: Enable debug mode
@@ -154,12 +178,39 @@ All environment variables are optional and have sensible defaults:
 - `PYTASK_MAX_EXECUTION_TIME`: Maximum script execution time in seconds
   - Default: `300` (5 minutes)
 
-- `TZ`: Container timezone (important for correct timestamp display)
+- `TZ`: Container timezone (important for correct scheduling)
   - Example: `TZ=Europe/Vienna`
-  - This affects both the backend scheduling and frontend timestamp display
-  - Make sure this matches your local timezone
+  - Affects both backend scheduling and frontend timestamp display
 
-The environment variables in the docker-compose.yml file are optional but recommended for explicit configuration. If not set, the application will use the default values.
+## New Features & Improvements
+
+### Real-time Dependency Installation
+
+- Live progress monitoring during dependency installation
+- Clear status updates and error reporting
+- Automatic virtual environment management
+- Version compatibility checking
+
+### Enhanced Script Execution
+
+- Improved real-time log streaming
+- Better error handling and reporting
+- Execution state management
+- Resource usage monitoring
+
+### Modern UI/UX
+
+- Clean and responsive design using Mantine UI
+- Dark mode support
+- Improved code editor with Monaco
+- Real-time updates and notifications
+
+### Improved Security
+
+- Script isolation using virtual environments
+- Secure dependency management
+- Resource usage limits
+- Error handling and logging
 
 ## API Documentation
 

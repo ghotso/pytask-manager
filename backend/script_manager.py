@@ -10,6 +10,7 @@ from typing import AsyncGenerator, List, Optional, Dict, Any, Coroutine
 import time
 from typing import IO as TextIO
 import io
+import aiofiles
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -200,33 +201,77 @@ class ScriptManager:
 
     async def _run_pip(self, *args: str) -> None:
         """Run pip command in the virtual environment."""
-        if not self.python_path.exists():
-            raise RuntimeError(f"Python executable not found at {self.python_path}")
-            
-        cmd = [
+        logger = logging.getLogger(__name__)
+        logger.info(f"Running pip command: {' '.join(args)}")
+        
+        # Ensure script directory exists
+        os.makedirs(str(self.script_dir), exist_ok=True)
+        
+        # Set up output file
+        output_file = self.script_dir / "pip_output.txt"
+        if output_file.exists():
+            output_file.unlink()
+        
+        # Create process with output redirection
+        process = await asyncio.create_subprocess_exec(
             str(self.python_path),
             "-m",
             "pip",
-            *args
-        ]
-        
-        logger.debug(f"Running pip command: {' '.join(cmd)}")
-        
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
+            *args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            cwd=str(self.script_dir),
+            cwd=str(self.script_dir)
         )
         
-        stdout, stderr = await process.communicate()
-        if process.returncode != 0:
-            error_msg = stderr.decode() if stderr else "Unknown error"
-            logger.error(f"Pip command failed: {error_msg}")
-            raise RuntimeError(f"Failed to run pip: {error_msg}")
+        if process.stdout is None or process.stderr is None:
+            raise RuntimeError("Failed to create pip process streams")
         
-        if stdout:
-            logger.debug(f"Pip output: {stdout.decode()}")
+        try:
+            # Process output in real-time
+            async def write_output(stream: asyncio.StreamReader, is_stderr: bool = False) -> None:
+                try:
+                    while True:
+                        line = await stream.readline()
+                        if not line:
+                            break
+                        try:
+                            # Write to file
+                            async with aiofiles.open(output_file, mode='ab') as f:
+                                await f.write(line)
+                                await f.flush()
+                                os.fsync(f.fileno())
+                        except Exception as e:
+                            logger.error(f"Error writing to pip output file: {e}")
+                
+                except Exception as e:
+                    logger.error(f"Error processing pip {'stderr' if is_stderr else 'stdout'}: {e}")
+            
+            # Create tasks for both streams
+            stdout_task = asyncio.create_task(write_output(process.stdout))
+            stderr_task = asyncio.create_task(write_output(process.stderr, True))
+            
+            # Wait for process to complete and streams to be fully processed
+            exit_code = await process.wait()
+            await stdout_task
+            await stderr_task
+            
+            if exit_code != 0:
+                error_msg = f"pip command failed with exit code {exit_code}"
+                logger.error(error_msg)
+                raise RuntimeError(error_msg)
+            
+        except Exception as e:
+            logger.error(f"Error running pip command: {e}")
+            raise
+        
+        finally:
+            # Ensure process is terminated
+            if process.returncode is None:
+                try:
+                    process.terminate()
+                    await process.wait()
+                except Exception as e:
+                    logger.error(f"Error terminating pip process: {e}")
 
     async def execute(self, execution_id: int) -> AsyncGenerator[str, None]:
         """Execute the script and stream its output."""

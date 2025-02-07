@@ -465,13 +465,13 @@ async def update_dependencies(
     return {"message": "Dependency update started"}
 
 
-@router.post("/scripts/{script_id}/execute", response_model=ExecutionResponse)
+@router.post("/scripts/{script_id}/execute", response_model=ExecutionRead)
 async def execute_script(
     script_id: int,
     background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
-) -> ExecutionResponse:
-    """Execute a script and return its execution ID."""
+) -> Execution:
+    """Execute a script and return its execution details."""
     # Get script
     script = await _get_script(session, script_id)
     if not script:
@@ -521,10 +521,7 @@ async def execute_script(
             execution.id,
         )
         
-        return ExecutionResponse(
-            execution_id=execution.id,
-            status=ExecutionStatus.PENDING
-        )
+        return execution
         
     except Exception as e:
         # Update execution record with error
@@ -606,6 +603,7 @@ async def websocket_endpoint(
     last_position = 0
     execution = None
     sent_messages = set()  # Track sent messages to prevent duplicates
+    status_message = None  # Store status message to send at the end
     
     try:
         await websocket.accept()
@@ -651,183 +649,245 @@ async def websocket_endpoint(
                 return
             await asyncio.sleep(0.1)
         
-        try:
-            # Open file in binary mode for better buffering
-            file_handle = open(output_file, "rb")
+        # Open file in binary mode for better buffering
+        with open(output_file, 'rb') as file:
+            file_handle = file
             
             while True:
-                try:
-                    # Check if execution is still running
-                    await session.refresh(execution)
-                    current_status = execution.status
-                    
-                    # Send status update if changed
-                    if current_status != last_status:
-                        status_message = f"STATUS: {current_status}"
-                        if execution.error_message:
-                            status_message += f" - {execution.error_message}"
-                        if status_message not in sent_messages:
-                            await websocket.send_text(status_message)
-                            sent_messages.add(status_message)
-                            logger.info(f"Sent status update: {status_message}")
-                        last_status = current_status
-                    
-                    # Read new content line by line with proper error handling
-                    file_handle.seek(last_position)
-                    new_lines = []
-                    chunk_size = 0
-                    
-                    while True:
-                        try:
-                            line = file_handle.readline()
-                            if not line:  # EOF
-                                break
-                                
-                            try:
-                                decoded_line = line.decode().rstrip('\n')
-                                if decoded_line and decoded_line not in sent_messages:
-                                    new_lines.append(decoded_line)
-                                    sent_messages.add(decoded_line)
-                                    chunk_size += len(line)
-                                
-                                # Send in chunks to avoid memory issues
-                                if chunk_size >= 8192 or len(new_lines) >= 100:
-                                    if new_lines:
-                                        await websocket.send_text('\n'.join(new_lines))
-                                        new_lines = []
-                                        chunk_size = 0
-                            except UnicodeDecodeError as e:
-                                logger.error(f"Error decoding line: {e}")
-                                continue
-                        except IOError as e:
-                            logger.error(f"Error reading from file: {e}")
-                            await asyncio.sleep(0.1)  # Back off on IO errors
-                            break
-                    
-                    # Send any remaining lines
-                    if new_lines:
-                        try:
-                            await websocket.send_text('\n'.join(new_lines))
-                        except Exception as e:
-                            logger.error(f"Error sending remaining lines: {e}")
-                    
-                    # Update position only after successful read
-                    last_position = file_handle.tell()
-                    
-                    # If execution is complete and we've read everything, break
-                    if current_status not in [ExecutionStatus.PENDING, ExecutionStatus.RUNNING]:
-                        # Do one final read with error handling
-                        try:
-                            file_handle.seek(last_position)
-                            final_content = file_handle.read()
-                            if final_content:
-                                try:
-                                    decoded_content = final_content.decode().rstrip('\n')
-                                    if decoded_content and decoded_content not in sent_messages:
-                                        await websocket.send_text(decoded_content)
-                                        sent_messages.add(decoded_content)
-                                except UnicodeDecodeError:
-                                    logger.error("Error decoding final content")
-                        except Exception as e:
-                            logger.error(f"Error reading final content: {e}")
+                # Check execution status
+                await session.refresh(execution)
+                if execution.status != last_status:
+                    status_message = f"STATUS: {execution.status}"
+                    last_status = execution.status
+                
+                # Read new content
+                file.seek(last_position)
+                new_content = file.read()
+                
+                if new_content:
+                    try:
+                        # Decode and process new content line by line
+                        text = new_content.decode('utf-8')
+                        lines = text.splitlines()
                         
-                        # Send execution finished message only once
-                        finish_message = "Execution finished."
-                        if finish_message not in sent_messages:
-                            await websocket.send_text(finish_message)
-                            sent_messages.add(finish_message)
-                            logger.info("Sent execution finished message")
-                        break
-                    
-                    # Small delay to prevent busy waiting
-                    await asyncio.sleep(0.1)
-                    
-                except Exception as e:
-                    logger.error(f"Error in main loop: {e}")
-                    await asyncio.sleep(1)  # Back off on errors
-            
-        except WebSocketDisconnect:
-            logger.warning("WebSocket disconnected during streaming")
-        except Exception as e:
-            logger.exception("Error streaming output")
-            try:
-                error_message = f"Error: {str(e)}"
-                if error_message not in sent_messages:
-                    await websocket.send_text(error_message)
-                    sent_messages.add(error_message)
-            except:
-                pass
-        finally:
-            if file_handle:
-                try:
-                    file_handle.close()
-                except:
-                    pass
-            
+                        for line in lines:
+                            # Remove ERROR: prefix from log lines
+                            clean_line = line.replace('ERROR: ', '')
+                            if clean_line and clean_line not in sent_messages:
+                                await websocket.send_text(clean_line)
+                                sent_messages.add(clean_line)
+                        
+                        last_position = file.tell()
+                    except UnicodeDecodeError as e:
+                        logger.error(f"Failed to decode file content: {e}")
+                        continue
+                
+                # If execution is complete, send status and break
+                if execution.status in [ExecutionStatus.SUCCESS, ExecutionStatus.FAILURE]:
+                    if status_message and status_message not in sent_messages:
+                        await websocket.send_text(status_message)
+                        sent_messages.add(status_message)
+                    await websocket.send_text("Execution finished.")
+                    break
+                
+                await asyncio.sleep(0.1)  # Small delay to prevent busy waiting
+                
+    except WebSocketDisconnect:
+        logger.info("WebSocket disconnected by client")
     except Exception as e:
-        logger.exception("Error in WebSocket endpoint")
-        try:
-            await websocket.close(code=1011, reason=str(e))
-        except:
-            pass
+        logger.error(f"Error in WebSocket connection: {e}")
+        if not websocket.client_state.DISCONNECTED:
+            await websocket.send_text(f"Error: {str(e)}")
     finally:
-        # Ensure cleanup of resources
         if file_handle:
+            file_handle.close()
+        if not websocket.client_state.DISCONNECTED:
+            await websocket.close()
+
+
+@router.websocket("/scripts/{script_id}/dependencies/ws")
+async def dependency_websocket_endpoint(
+    websocket: WebSocket,
+    script_id: int,
+    session: AsyncSession = Depends(get_session),
+):
+    """WebSocket endpoint for real-time dependency installation logs."""
+    logger = logging.getLogger(__name__)
+    logger.info("Dependency WebSocket connection initiated")
+    
+    # Track file handle and position to prevent race conditions
+    file_handle = None
+    last_position = 0
+    sent_messages = set()  # Track sent messages to prevent duplicates
+    
+    try:
+        await websocket.accept()
+        logger.info("WebSocket connection accepted")
+        
+        # Create script manager to read output
+        manager = ScriptManager(script_id, base_dir=str(settings.scripts_dir))
+        output_file = manager.script_dir / "pip_output.txt"
+        
+        # Send initial connection message only if not sent before
+        initial_message = "Connected to dependency installation stream..."
+        if initial_message not in sent_messages:
+            await websocket.send_text(initial_message)
+            sent_messages.add(initial_message)
+            logger.info("Sent initial connection message")
+        
+        # Wait for output file to be created (max 10 seconds)
+        start_time = time.monotonic()
+        while not output_file.exists():
+            if time.monotonic() - start_time > 10:
+                logger.warning("Output file not created within timeout")
+                await websocket.send_text("Error: Output file not created within timeout")
+                return
+            await asyncio.sleep(0.1)
+        
+        # Open file in binary mode for better buffering
+        with open(output_file, 'rb') as file:
+            file_handle = file
+            
+            while True:
+                # Read new content
+                file.seek(last_position)
+                new_content = file.read()
+                
+                if new_content:
+                    try:
+                        # Decode and process new content line by line
+                        text = new_content.decode('utf-8')
+                        lines = text.splitlines()
+                        
+                        for line in lines:
+                            # Remove ERROR: prefix from log lines
+                            clean_line = line.replace('ERROR: ', '')
+                            if clean_line and clean_line not in sent_messages:
+                                await websocket.send_text(clean_line)
+                                sent_messages.add(clean_line)
+                        
+                        last_position = file.tell()
+                    except UnicodeDecodeError as e:
+                        logger.error(f"Failed to decode file content: {e}")
+                        continue
+                
+                # Check if installation is complete by looking for a marker file
+                if (manager.script_dir / "pip_finished").exists():
+                    success = (manager.script_dir / "pip_success").exists()
+                    status = "SUCCESS" if success else "FAILURE"
+                    await websocket.send_text(f"STATUS: {status}")
+                    await websocket.send_text("Installation finished.")
+                    break
+                
+                await asyncio.sleep(0.1)  # Small delay to prevent busy waiting
+                
+    except WebSocketDisconnect:
+        logger.info("WebSocket disconnected by client")
+    except Exception as e:
+        logger.error(f"Error in WebSocket connection: {e}")
+        if not websocket.client_state.DISCONNECTED:
+            await websocket.send_text(f"Error: {str(e)}")
+    finally:
+        if file_handle:
+            file_handle.close()
+        if not websocket.client_state.DISCONNECTED:
+            await websocket.close()
+
+
+async def _install_dependencies_task(script_id: int) -> None:
+    """Background task for installing dependencies."""
+    logger = logging.getLogger(__name__)
+    manager = None
+    
+    try:
+        async with get_session_context() as session:
+            # Get the script
+            script = await _get_script(session, script_id)
+            
+            # Create script manager
+            manager = ScriptManager(script_id, base_dir=str(settings.scripts_dir))
+            
+            # Create marker files
+            pip_finished = manager.script_dir / "pip_finished"
+            pip_success = manager.script_dir / "pip_success"
+            pip_output = manager.script_dir / "pip_output.txt"
+            
+            # Remove old marker files if they exist
+            for file in [pip_finished, pip_success, pip_output]:
+                if file.exists():
+                    file.unlink()
+            
             try:
-                file_handle.close()
-            except:
-                pass
+                # Set up environment and capture output
+                await manager.setup_environment(script.content, script.dependencies)
+                
+                # Get installed versions
+                installed_versions = await manager.get_installed_versions()
+                
+                # Update dependencies with installed versions
+                for dep in script.dependencies:
+                    if dep.package_name.lower() in {k.lower() for k in installed_versions.keys()}:
+                        actual_name = next(
+                            k for k in installed_versions.keys() 
+                            if k.lower() == dep.package_name.lower()
+                        )
+                        dep.installed_version = installed_versions[actual_name]
+                
+                await session.commit()
+                
+                # Mark installation as successful
+                pip_success.touch()
+                
+            except Exception as e:
+                logger.error(f"Error during dependency installation: {e}")
+                # Don't create success file, but do create finished file
+                raise
+            
+            finally:
+                # Mark installation as finished regardless of outcome
+                pip_finished.touch()
+                
+    except Exception as e:
+        logger.exception(f"Error installing dependencies for script {script_id}")
+        raise
+    
+    finally:
+        # Clean up temporary files after a delay to ensure WebSocket can read them
+        await asyncio.sleep(2)
+        try:
+            if pip_finished.exists():
+                pip_finished.unlink()
+            if pip_success.exists():
+                pip_success.unlink()
+            if pip_output.exists():
+                pip_output.unlink()
+        except Exception as e:
+            logger.error(f"Error cleaning up marker files: {e}")
 
 
 @router.post("/scripts/{script_id}/install-dependencies")
 async def install_dependencies(
     script_id: int,
+    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     """Install dependencies for a script."""
     try:
-        logger.info(f"Installing dependencies for script {script_id}")
-        script = await _get_script(session, script_id)
+        logger.info(f"Starting dependency installation for script {script_id}")
         
-        # Create script manager and set up environment
-        manager = ScriptManager(script_id, base_dir=str(settings.scripts_dir))
-        await manager.setup_environment(script.content, script.dependencies)
-        
-        # Get installed versions
-        installed_versions = await manager.get_installed_versions()
-        logger.debug(f"Got installed versions: {installed_versions}")
-        
-        # Update dependencies with installed versions
-        for dep in script.dependencies:
-            if dep.package_name.lower() in {k.lower() for k in installed_versions.keys()}:
-                # Find the actual package name with correct case
-                actual_name = next(
-                    k for k in installed_versions.keys() 
-                    if k.lower() == dep.package_name.lower()
-                )
-                dep.installed_version = installed_versions[actual_name]
-                logger.debug(f"Updated {dep.package_name} with version {dep.installed_version}")
-        
-        await session.commit()
-        await session.refresh(script)
+        # Schedule the installation in the background
+        background_tasks.add_task(_install_dependencies_task, script_id)
         
         return {
-            "message": "Dependencies installed successfully",
-            "dependencies": [
-                {
-                    "package_name": dep.package_name,
-                    "version_spec": dep.version_spec,
-                    "installed_version": dep.installed_version
-                }
-                for dep in script.dependencies
-            ]
+            "message": "Dependency installation started",
+            "status": "pending"
         }
         
     except Exception as e:
-        logger.exception(f"Error installing dependencies for script {script_id}")
+        logger.exception(f"Error initiating dependency installation for script {script_id}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to install dependencies: {str(e)}"
+            detail=f"Failed to start dependency installation: {str(e)}"
         )
 
 

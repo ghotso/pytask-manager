@@ -16,6 +16,8 @@ import {
   Portal,
   ActionIcon,
   Title,
+  Modal,
+  ScrollArea,
 } from '@mantine/core';
 import { useParams, useNavigate } from 'react-router-dom';
 import { notifications } from '@mantine/notifications';
@@ -54,7 +56,6 @@ export function ScriptDetailPage() {
   const [lastError, setLastError] = useState<string | null>(null);
   
   // Loading states
-  const [isInstallingDeps, setIsInstallingDeps] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
   
@@ -72,6 +73,10 @@ export function ScriptDetailPage() {
   const { script, error: scriptError, mutate, isLoading } = useScript(scriptId);
   const [isSaving, setIsSaving] = useState(false);
   const [isActive, setIsActive] = useState(true);
+
+  const [isInstalling, setIsInstalling] = useState(false);
+  const [installationLogs, setInstallationLogs] = useState<string[]>([]);
+  const [showInstallationLogs, setShowInstallationLogs] = useState(false);
 
   useEffect(() => {
     if (script) {
@@ -187,7 +192,7 @@ export function ScriptDetailPage() {
     // If we have removed dependencies, uninstall them
     if (removedDependencies.length > 0) {
       try {
-        setIsInstallingDeps(true);
+        setIsInstalling(true);
         await Promise.all(
           removedDependencies.map(dep => 
             scriptsApi.uninstallDependency(scriptId, dep.package_name)
@@ -202,7 +207,7 @@ export function ScriptDetailPage() {
         handleApiError(err, 'uninstalling dependencies');
         return; // Don't update the state if uninstall failed
       } finally {
-        setIsInstallingDeps(false);
+        setIsInstalling(false);
       }
     }
 
@@ -223,7 +228,7 @@ export function ScriptDetailPage() {
 
   const handleDeleteDependency = async (packageName: string) => {
     try {
-      setIsInstallingDeps(true);
+      setIsInstalling(true);
       await scriptsApi.uninstallDependency(scriptId, packageName);
       const updatedDependencies = dependencies.filter(dep => dep.package_name !== packageName);
       await handleDependenciesChange(updatedDependencies);
@@ -235,7 +240,7 @@ export function ScriptDetailPage() {
     } catch (err) {
       handleApiError(err, 'uninstalling dependency');
     } finally {
-      setIsInstallingDeps(false);
+      setIsInstalling(false);
     }
   };
 
@@ -397,21 +402,52 @@ export function ScriptDetailPage() {
   }, [isLogModalOpen]);
 
   const handleInstallDependencies = async () => {
-    setIsInstallingDeps(true);
     try {
-      await scriptsApi.installDependencies(scriptId);
-      // Refresh script data to get updated dependency versions
-      await mutate();
-      setLastError(null);
+      setIsInstalling(true);
+      setInstallationLogs([]);
+      setShowInstallationLogs(true);
+
+      // Start the installation process
+      await scriptsApi.installDependencies(Number(id));
+
+      // Connect to WebSocket for real-time logs
+      const ws = new WebSocket(`${WS_BASE_URL}/api/scripts/${id}/dependencies/ws`);
+
+      ws.onmessage = (event) => {
+        const message = event.data;
+        setInstallationLogs(prev => [...prev, message]);
+
+        // Check for completion message
+        if (message === 'Installation finished.') {
+          setIsInstalling(false);
+          ws.close();
+          // Refresh script data to get updated dependency versions
+          mutate();
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        notifications.show({
+          title: 'Error',
+          message: 'Failed to connect to installation log stream',
+          color: 'red',
+        });
+        setIsInstalling(false);
+      };
+
+      ws.onclose = () => {
+        console.log('WebSocket connection closed');
+        setIsInstalling(false);
+      };
+    } catch (error) {
+      console.error('Error installing dependencies:', error);
       notifications.show({
-        title: 'Success',
-        message: 'Dependencies installed successfully',
-        color: 'green',
+        title: 'Error',
+        message: 'Failed to start dependency installation',
+        color: 'red',
       });
-    } catch (err) {
-      handleApiError(err, 'installing dependencies');
-    } finally {
-      setIsInstallingDeps(false);
+      setIsInstalling(false);
     }
   };
 
@@ -767,7 +803,7 @@ export function ScriptDetailPage() {
                 <Group justify="flex-end">
                   <Button
                     onClick={handleInstallDependencies}
-                    loading={isInstallingDeps}
+                    loading={isInstalling}
                     disabled={dependencies.length === 0}
                   >
                     Install Dependencies
@@ -1113,6 +1149,33 @@ export function ScriptDetailPage() {
           </div>
         </Portal>
       )}
+
+      {/* Installation Logs Modal */}
+      <Modal
+        opened={showInstallationLogs}
+        onClose={() => !isInstalling && setShowInstallationLogs(false)}
+        title="Installing Dependencies"
+        size="xl"
+        styles={{
+          title: { fontSize: '1.2rem', fontWeight: 500 },
+          body: { padding: 0 },
+        }}
+      >
+        <ScrollArea h={400} p="md">
+          <Code block style={{ whiteSpace: 'pre-wrap', background: '#1A1B1E' }}>
+            {installationLogs.join('\n')}
+          </Code>
+        </ScrollArea>
+        <Group justify="flex-end" p="md">
+          <Button
+            variant="light"
+            onClick={() => setShowInstallationLogs(false)}
+            disabled={isInstalling}
+          >
+            Close
+          </Button>
+        </Group>
+      </Modal>
     </Box>
   );
 } 
