@@ -818,8 +818,13 @@ async def _install_dependencies_task(script_id: int) -> None:
                     file.unlink()
             
             try:
-                # Set up environment and capture output
-                await manager.setup_environment(script.content, script.dependencies)
+                # First, upgrade pip, setuptools, and wheel
+                await manager._run_pip("install", "--upgrade", "pip", "setuptools", "wheel")
+                
+                # Then install each dependency individually to see progress for each
+                for dep in script.dependencies:
+                    package_spec = f"{dep.package_name}{dep.version_spec}" if dep.version_spec else dep.package_name
+                    await manager._run_pip("install", package_spec)
                 
                 # Get installed versions
                 installed_versions = await manager.get_installed_versions()
