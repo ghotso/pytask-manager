@@ -280,7 +280,23 @@ export function ScriptDetailPage() {
     }
   }, [scriptId]);
 
+  // Add helper function to check dependency status
+  const hasUninstalledDependencies = () => {
+    return dependencies.some(dep => !dep.installed_version);
+  };
+
+  // Update handleRun to check dependencies first
   const handleRun = async () => {
+    // Check for uninstalled dependencies first
+    if (hasUninstalledDependencies()) {
+      notifications.show({
+        title: 'Error',
+        message: 'Please install all dependencies before running the script',
+        color: 'red',
+      });
+      return;
+    }
+
     try {
       setIsExecuting(true);
       setShowExecutionModal(true);
@@ -419,6 +435,7 @@ export function ScriptDetailPage() {
     }
   };
 
+  // Update handleToggleActive to use the helper function
   const handleToggleActive = async () => {
     try {
       // Check if we can enable the script
@@ -434,10 +451,7 @@ export function ScriptDetailPage() {
         }
         
         // Can't enable if dependencies not installed
-        const hasUninstalledDeps = script?.dependencies.some(
-          (dep: Dependency) => !dep.installed_version
-        );
-        if (hasUninstalledDeps) {
+        if (hasUninstalledDependencies()) {
           notifications.show({
             title: 'Error',
             message: 'Cannot enable script with uninstalled dependencies',
@@ -462,14 +476,11 @@ export function ScriptDetailPage() {
     }
   };
 
-  // Helper function to check if toggle should be disabled
+  // Update isToggleDisabled to use the helper function
   const isToggleDisabled = () => {
     if (!script) return true;
     if (isActive) return false; // Can always disable
-    return (
-      !script.schedules.length || // No schedules
-      script.dependencies.some(dep => !dep.installed_version) // Uninstalled deps
-    );
+    return !script.schedules.length || hasUninstalledDependencies();
   };
 
   const handleDelete = async () => {
@@ -586,12 +597,12 @@ export function ScriptDetailPage() {
               />
             </Group>
             <Button
-              leftSection={<IconPlayerPlay size={18} />}
+              leftSection={isExecuting ? <IconLoader2 className="rotating" /> : <IconPlayerPlay />}
               onClick={handleRun}
               loading={isExecuting}
-              color="green"
+              disabled={isExecuting || hasUninstalledDependencies()}
             >
-              Run Script
+              {hasUninstalledDependencies() ? 'Install Dependencies First' : 'Run Script'}
             </Button>
             <Button
               onClick={handleSave}
@@ -772,7 +783,7 @@ export function ScriptDetailPage() {
                   <Button
                     onClick={handleInstallDependencies}
                     loading={isInstalling}
-                    disabled={dependencies.length === 0}
+                    disabled={!hasUninstalledDependencies() || isInstalling}
                   >
                     Install Dependencies
                   </Button>

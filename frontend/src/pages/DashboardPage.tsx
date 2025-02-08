@@ -151,7 +151,7 @@ export function DashboardPage() {
             <Card 
               withBorder 
               component={Link} 
-              to="/scripts"
+              to="/scripts?filter=active"
               style={{ 
                 textDecoration: 'none', 
                 color: 'inherit',

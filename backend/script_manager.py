@@ -105,11 +105,8 @@ class ScriptManager:
         """Set up the script environment with virtual environment and dependencies."""
         logger.info(f"Setting up environment for script {self.script_id}")
         
-        # Clean up any existing environment first
-        self.cleanup()
-        
         try:
-            # Create script directory with proper permissions
+            # Create script directory if it doesn't exist
             self.script_dir.mkdir(parents=True, exist_ok=True)
             try:
                 os.chmod(str(self.script_dir), 0o777)  # Ensure directory is writable
@@ -124,39 +121,40 @@ class ScriptManager:
             except Exception as e:
                 logger.warning(f"Failed to set script file permissions: {e}")
             
-            # Create virtual environment
-            logger.info(f"Creating virtual environment in {self.venv_dir}")
-            try:
-                builder = venv.EnvBuilder(
-                    system_site_packages=False,
-                    clear=True,
-                    with_pip=True,
-                    upgrade_deps=True,
-                    symlinks=False  # More compatible across systems
-                )
-                builder.create(self.venv_dir)
-                
-                # Make Python executable actually executable on Unix
-                if sys.platform != "win32":
-                    try:
-                        self.python_path.chmod(0o755)
-                    except Exception as e:
-                        logger.warning(f"Failed to set Python executable permissions: {e}")
-                
-                # Verify Python executable exists
-                if not self.python_path.exists():
-                    raise RuntimeError(f"Failed to create Python executable at {self.python_path}")
-                
-                # Upgrade pip to latest version
-                await self._run_pip("install", "--upgrade", "pip", "setuptools", "wheel")
-                
-            except Exception as e:
-                logger.error(f"Failed to create virtual environment: {e}")
-                raise RuntimeError(f"Failed to create virtual environment: {e}")
+            # Create virtual environment only if it doesn't exist
+            if not self.venv_dir.exists() or not self.python_path.exists():
+                logger.info(f"Creating virtual environment in {self.venv_dir}")
+                try:
+                    builder = venv.EnvBuilder(
+                        system_site_packages=False,
+                        clear=True,
+                        with_pip=True,
+                        upgrade_deps=True,
+                        symlinks=False  # More compatible across systems
+                    )
+                    builder.create(self.venv_dir)
+                    
+                    # Make Python executable actually executable on Unix
+                    if sys.platform != "win32":
+                        try:
+                            self.python_path.chmod(0o755)
+                        except Exception as e:
+                            logger.warning(f"Failed to set Python executable permissions: {e}")
+                    
+                    # Verify Python executable exists
+                    if not self.python_path.exists():
+                        raise RuntimeError(f"Failed to create Python executable at {self.python_path}")
+                    
+                    # Upgrade pip to latest version
+                    await self._run_pip("install", "--upgrade", "pip", "setuptools", "wheel")
+                    
+                except Exception as e:
+                    logger.error(f"Failed to create virtual environment: {e}")
+                    raise RuntimeError(f"Failed to create virtual environment: {e}")
             
-            # Install dependencies if any
+            # Install or update dependencies if any
             if dependencies:
-                logger.info("Installing dependencies")
+                logger.info("Installing/updating dependencies")
                 # Write requirements.txt with proper version specs
                 requirements = []
                 for dep in dependencies:
@@ -176,11 +174,12 @@ class ScriptManager:
                 self.requirements_path.write_text("\n".join(requirements))
                 
                 try:
-                    # Install requirements
+                    # Install/update requirements
                     await self._run_pip(
                         "install",
                         "-r", str(self.requirements_path),
-                        "--no-cache-dir"  # Avoid caching issues
+                        "--no-cache-dir",  # Avoid caching issues
+                        "--upgrade"  # Ensure packages are updated if needed
                     )
                     
                     # Update installed versions
@@ -195,8 +194,6 @@ class ScriptManager:
         
         except Exception as e:
             logger.error(f"Failed to set up environment: {e}")
-            # Clean up on failure
-            self.cleanup()
             raise
 
     async def _run_pip(self, *args: str) -> None:
@@ -419,75 +416,102 @@ class ScriptManager:
                     except:
                         pass
 
-    def cleanup(self) -> None:
-        """Clean up script environment."""
+    def cleanup(self, remove_environment: bool = False) -> None:
+        """Clean up script environment.
+        
+        Args:
+            remove_environment: If True, removes the entire script directory including venv.
+                              If False, only removes temporary files (default).
+        """
         if not self.script_dir.exists():
             return
 
-        logger.info(f"Cleaning up script {self.script_id}")
+        logger.info(f"Cleaning up script {self.script_id} (remove_environment={remove_environment})")
         
-        # Clean up output files
+        # Clean up temporary files
         try:
+            # Remove output files
             for file in self.script_dir.glob("output_*.txt"):
                 try:
                     file.unlink()
                 except Exception as e:
                     logger.warning(f"Failed to remove output file {file}: {e}")
-        except Exception as e:
-            logger.warning(f"Error cleaning up output files: {e}")
-        
-        # First try to remove the venv directory
-        if self.venv_dir.exists():
-            try:
-                # On Windows, some files might be locked, so we need multiple attempts
-                max_attempts = 3
-                for attempt in range(max_attempts):
-                    try:
-                        shutil.rmtree(self.venv_dir, ignore_errors=False)
-                        break
-                    except OSError as e:
-                        if attempt == max_attempts - 1:
-                            logger.error(f"Failed to remove venv directory after {max_attempts} attempts: {e}")
-                            # If we can't remove venv, we'll still try to remove the script dir
-                        else:
-                            time.sleep(0.5)  # Wait before retry
-            except Exception as e:
-                logger.error(f"Error cleaning up venv directory: {e}")
-        
-        # Then try to remove the script directory
-        try:
-            if self.script_dir.exists():
-                # Try to ensure no processes are using the directory
-                for root, dirs, files in os.walk(self.script_dir, topdown=False):
-                    for name in files:
-                        try:
-                            os.chmod(os.path.join(root, name), 0o777)
-                        except:
-                            pass
-                    for name in dirs:
-                        try:
-                            os.chmod(os.path.join(root, name), 0o777)
-                        except:
-                            pass
+            
+            # Remove pip output file
+            if self.pip_log_path.exists():
+                try:
+                    self.pip_log_path.unlink()
+                except Exception as e:
+                    logger.warning(f"Failed to remove pip log file: {e}")
                 
-                # Attempt to remove the directory
-                max_attempts = 3
-                for attempt in range(max_attempts):
+            # Remove pip status files
+            for status_file in ["pip_finished", "pip_success"]:
+                status_path = self.script_dir / status_file
+                if status_path.exists():
                     try:
-                        shutil.rmtree(self.script_dir, ignore_errors=False)
-                        break
-                    except OSError as e:
-                        if attempt == max_attempts - 1:
-                            logger.error(f"Failed to remove script directory after {max_attempts} attempts: {e}")
-                        else:
-                            time.sleep(0.5)  # Wait before retry
+                        status_path.unlink()
+                    except Exception as e:
+                        logger.warning(f"Failed to remove status file {status_file}: {e}")
+        
         except Exception as e:
-            logger.error(f"Error cleaning up script directory: {e}")
-            # If we can't remove it normally, try force removal
+            logger.warning(f"Error cleaning up temporary files: {e}")
+        
+        # If remove_environment is True, remove everything
+        if remove_environment:
             try:
-                os.system(f"rm -rf {self.script_dir}")
-            except:
-                pass
+                # First try to remove the venv directory
+                if self.venv_dir.exists():
+                    try:
+                        # On Windows, some files might be locked, so we need multiple attempts
+                        max_attempts = 3
+                        for attempt in range(max_attempts):
+                            try:
+                                shutil.rmtree(self.venv_dir, ignore_errors=False)
+                                break
+                            except OSError as e:
+                                if attempt == max_attempts - 1:
+                                    logger.error(f"Failed to remove venv directory after {max_attempts} attempts: {e}")
+                                else:
+                                    time.sleep(0.5)  # Wait before retry
+                    except Exception as e:
+                        logger.error(f"Error cleaning up venv directory: {e}")
+                
+                # Then try to remove the script directory
+                try:
+                    if self.script_dir.exists():
+                        # Try to ensure no processes are using the directory
+                        for root, dirs, files in os.walk(self.script_dir, topdown=False):
+                            for name in files:
+                                try:
+                                    os.chmod(os.path.join(root, name), 0o777)
+                                except:
+                                    pass
+                            for name in dirs:
+                                try:
+                                    os.chmod(os.path.join(root, name), 0o777)
+                                except:
+                                    pass
+                        
+                        # Attempt to remove the directory
+                        max_attempts = 3
+                        for attempt in range(max_attempts):
+                            try:
+                                shutil.rmtree(self.script_dir, ignore_errors=False)
+                                break
+                            except OSError as e:
+                                if attempt == max_attempts - 1:
+                                    logger.error(f"Failed to remove script directory after {max_attempts} attempts: {e}")
+                                else:
+                                    time.sleep(0.5)  # Wait before retry
+                except Exception as e:
+                    logger.error(f"Error cleaning up script directory: {e}")
+                    # If we can't remove it normally, try force removal
+                    try:
+                        os.system(f"rm -rf {self.script_dir}")
+                    except:
+                        pass
+            except Exception as e:
+                logger.error(f"Error removing environment: {e}")
 
     async def check_dependencies(self) -> List[str]:
         """Check for outdated dependencies."""

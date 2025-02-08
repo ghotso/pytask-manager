@@ -314,7 +314,7 @@ async def delete_script(
         # Delete script and clean up its environment
         manager = ScriptManager(script_id, base_dir=str(settings.scripts_dir))
         try:
-            manager.cleanup()
+            manager.cleanup(remove_environment=True)  # Remove everything since script is being deleted
         except Exception as e:
             logger.warning(f"Failed to clean up script directory: {e}")
             # Continue with deletion even if cleanup fails
@@ -530,8 +530,8 @@ async def execute_script(
         execution.error_message = f"Failed to set up script environment: {str(e)}"
         await session.commit()
         
-        # Clean up failed environment
-        script_manager.cleanup()
+        # Clean up temporary files only
+        script_manager.cleanup(remove_environment=False)
         
         # Re-raise as HTTP exception
         raise HTTPException(
@@ -720,6 +720,9 @@ async def dependency_websocket_endpoint(
     last_position = 0
     sent_messages = set()  # Track sent messages to prevent duplicates
     
+    # Standard packages to filter out
+    standard_packages = {'pip', 'setuptools', 'wheel'}
+    
     try:
         await websocket.accept()
         logger.info("WebSocket connection accepted")
@@ -762,7 +765,14 @@ async def dependency_websocket_endpoint(
                         for line in lines:
                             # Remove ERROR: prefix from log lines
                             clean_line = line.replace('ERROR: ', '')
-                            if clean_line and clean_line not in sent_messages:
+                            
+                            # Skip lines related to standard packages
+                            should_skip = any(
+                                pkg in clean_line.lower()
+                                for pkg in standard_packages
+                            )
+                            
+                            if clean_line and not should_skip and clean_line not in sent_messages:
                                 await websocket.send_text(clean_line)
                                 sent_messages.add(clean_line)
                         
@@ -784,14 +794,14 @@ async def dependency_websocket_endpoint(
     except WebSocketDisconnect:
         logger.info("WebSocket disconnected by client")
     except Exception as e:
-        logger.error(f"Error in WebSocket connection: {e}")
-        if not websocket.client_state.DISCONNECTED:
+        logger.error(f"Error in dependency WebSocket: {e}")
+        try:
             await websocket.send_text(f"Error: {str(e)}")
+        except:
+            pass
     finally:
         if file_handle:
             file_handle.close()
-        if not websocket.client_state.DISCONNECTED:
-            await websocket.close()
 
 
 async def _install_dependencies_task(script_id: int) -> None:
@@ -818,13 +828,13 @@ async def _install_dependencies_task(script_id: int) -> None:
                     file.unlink()
             
             try:
-                # First, upgrade pip, setuptools, and wheel
-                await manager._run_pip("install", "--upgrade", "pip", "setuptools", "wheel")
+                # Silently upgrade pip, setuptools, and wheel (no output logging)
+                await manager._run_pip("install", "--upgrade", "pip", "setuptools", "wheel", "--quiet")
                 
-                # Then install each dependency individually to see progress for each
+                # Install each dependency individually with full logging
                 for dep in script.dependencies:
                     package_spec = f"{dep.package_name}{dep.version_spec}" if dep.version_spec else dep.package_name
-                    await manager._run_pip("install", package_spec)
+                    await manager._run_pip("install", package_spec, "--no-cache-dir")
                 
                 # Get installed versions
                 installed_versions = await manager.get_installed_versions()
@@ -855,19 +865,6 @@ async def _install_dependencies_task(script_id: int) -> None:
     except Exception as e:
         logger.exception(f"Error installing dependencies for script {script_id}")
         raise
-    
-    finally:
-        # Clean up temporary files after a delay to ensure WebSocket can read them
-        await asyncio.sleep(2)
-        try:
-            if pip_finished.exists():
-                pip_finished.unlink()
-            if pip_success.exists():
-                pip_success.unlink()
-            if pip_output.exists():
-                pip_output.unlink()
-        except Exception as e:
-            logger.error(f"Error cleaning up marker files: {e}")
 
 
 @router.post("/scripts/{script_id}/install-dependencies")
@@ -1080,9 +1077,9 @@ async def _execute_script(script_id: int, execution_id: int) -> None:
             logger.error(f"Error updating execution status: {commit_error}")
     
     finally:
-        # Always clean up the script manager
+        # Clean up temporary files only
         if manager:
             try:
-                manager.cleanup()
-            except Exception as cleanup_error:
-                logger.error(f"Error cleaning up script manager: {cleanup_error}")
+                manager.cleanup(remove_environment=False)
+            except:
+                pass

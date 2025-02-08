@@ -229,7 +229,7 @@ class SchedulerService:
             if execution_id in self._active_executions:
                 del self._active_executions[execution_id]
             if manager:
-                manager.cleanup()
+                manager.cleanup(remove_environment=False)
     
     async def _run_script_with_output(
         self, 
