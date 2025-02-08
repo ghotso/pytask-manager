@@ -151,7 +151,7 @@ export function DashboardPage() {
             <Card 
               withBorder 
               component={Link} 
-              to="/"
+              to="/scripts"
               style={{ 
                 textDecoration: 'none', 
                 color: 'inherit',
@@ -174,7 +174,7 @@ export function DashboardPage() {
             <Card 
               withBorder 
               component={Link} 
-              to="/"
+              to="/scripts?filter=inactive"
               style={{ 
                 textDecoration: 'none', 
                 color: 'inherit',
@@ -197,7 +197,7 @@ export function DashboardPage() {
             <Card 
               withBorder 
               component={Link} 
-              to="/"
+              to="/scripts?filter=missing-deps"
               style={{ 
                 textDecoration: 'none', 
                 color: 'inherit',
@@ -220,7 +220,7 @@ export function DashboardPage() {
             <Card 
               withBorder 
               component={Link} 
-              to="/"
+              to="/scripts?filter=failed"
               style={{ 
                 textDecoration: 'none', 
                 color: 'inherit',
