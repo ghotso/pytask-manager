@@ -317,6 +317,9 @@ class ScriptManager:
             if not script_path.exists():
                 raise FileNotFoundError(f"Script file not found: {script_path}")
             
+            # Create output file immediately to ensure it exists for WebSocket
+            output_file_path.touch()
+            
             # Open output file in binary mode first for better buffering
             binary_file = open(str(output_file_path), "wb", buffering=0)  # Unbuffered binary stream
             output_file = io.TextIOWrapper(
@@ -325,6 +328,10 @@ class ScriptManager:
                 write_through=True,  # Ensure writes go directly to the binary stream
                 line_buffering=True  # Enable line buffering
             )
+            
+            # Write initial message to ensure file has content
+            output_file.write("Starting script execution...\n")
+            output_file.flush()
             
             # Create subprocess with timeout handling
             try:

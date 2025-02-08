@@ -641,14 +641,21 @@ async def websocket_endpoint(
             sent_messages.add(initial_message)
             logger.info("Sent initial connection message")
         
-        # Wait for output file to be created (max 10 seconds)
+        # Wait for output file to be created (max 30 seconds)
         start_time = time.monotonic()
         while not output_file.exists():
-            if time.monotonic() - start_time > 10:
+            if time.monotonic() - start_time > 30:
                 logger.warning("Output file not created within timeout")
                 await websocket.send_text("Error: Output file not created within timeout")
                 return
             await asyncio.sleep(0.1)
+            
+            # Check if execution failed before file was created
+            await session.refresh(execution)
+            if execution.status == ExecutionStatus.FAILURE:
+                logger.warning("Execution failed before output file was created")
+                await websocket.send_text(f"Error: {execution.error_message}")
+                return
         
         # Open file in binary mode for better buffering
         with open(output_file, 'rb') as file:
@@ -747,6 +754,13 @@ async def dependency_websocket_endpoint(
                 await websocket.send_text("Error: Output file not created within timeout")
                 return
             await asyncio.sleep(0.1)
+            
+            # Check for pip_finished file to detect early failures
+            if (manager.script_dir / "pip_finished").exists():
+                if not (manager.script_dir / "pip_success").exists():
+                    logger.warning("Dependency installation failed")
+                    await websocket.send_text("Error: Dependency installation failed")
+                    return
         
         # Open file in binary mode for better buffering
         with open(output_file, 'rb') as file:
