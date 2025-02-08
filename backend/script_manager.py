@@ -160,17 +160,24 @@ class ScriptManager:
                 for dep in dependencies:
                     if not dep.version_spec or dep.version_spec in ['*', '']:
                         # For wildcard or empty version spec, just use the package name
-                        requirements.append(dep.package_name)
+                        # without any version specification to get the latest version
+                        requirements.append(dep.package_name.strip())
                     elif dep.version_spec.startswith('=='):
                         # Exact version requirement
-                        requirements.append(f"{dep.package_name}{dep.version_spec}")
+                        requirements.append(f"{dep.package_name.strip()}{dep.version_spec}")
                     elif dep.version_spec.startswith(('>=', '<=', '>', '<', '~=')):
                         # Standard version comparisons
-                        requirements.append(f"{dep.package_name}{dep.version_spec}")
+                        requirements.append(f"{dep.package_name.strip()}{dep.version_spec}")
                     else:
-                        # For any other format, default to latest version
-                        requirements.append(dep.package_name)
+                        # For any other format, treat it as an exact version if it's a valid version string
+                        version = dep.version_spec.strip()
+                        if version and not version.startswith(('*', '=')):
+                            requirements.append(f"{dep.package_name.strip()}=={version}")
+                        else:
+                            # Default to latest version if version spec is invalid
+                            requirements.append(dep.package_name.strip())
                 
+                logger.debug(f"Writing requirements: {requirements}")
                 self.requirements_path.write_text("\n".join(requirements))
                 
                 try:
