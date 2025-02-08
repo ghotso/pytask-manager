@@ -4,7 +4,8 @@ import {
   IconPlus, 
   IconHistory, 
   IconBrandPython,
-  IconCode
+  IconCode,
+  IconDashboard,
 } from '@tabler/icons-react';
 
 export function Sidebar() {
@@ -69,9 +70,34 @@ export function Sidebar() {
               <NavLink
                 component={Link}
                 to="/"
+                label="Dashboard"
+                leftSection={<IconDashboard size={18} />}
+                active={location.pathname === '/'}
+                styles={{
+                  root: {
+                    borderRadius: '8px',
+                    padding: '12px 16px',
+                    color: '#C1C2C5',
+                    transition: 'all 0.2s ease',
+                    '&[data-active]': {
+                      backgroundColor: '#25262B',
+                      color: '#fff',
+                      boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+                    },
+                    '&:hover': {
+                      backgroundColor: '#25262B',
+                      transform: 'translateX(4px)',
+                    }
+                  }
+                }}
+              />
+
+              <NavLink
+                component={Link}
+                to="/scripts"
                 label="Scripts"
                 leftSection={<IconCode size={18} />}
-                active={location.pathname === '/' || location.pathname === '/scripts'}
+                active={location.pathname === '/scripts'}
                 styles={{
                   root: {
                     borderRadius: '8px',

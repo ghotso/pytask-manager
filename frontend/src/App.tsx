@@ -3,7 +3,7 @@ import '@mantine/notifications/styles.css';
 
 import { MantineProvider, createTheme } from '@mantine/core';
 import { Notifications } from '@mantine/notifications';
-import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { ScriptExecution } from './components/ScriptExecution';
 import { ScriptForm } from './components/ScriptForm';
@@ -11,6 +11,7 @@ import { ScriptList } from './components/ScriptList';
 import { ScriptSchedules } from './components/ScriptSchedules';
 import { ScriptDetailPage } from './pages/ScriptDetailPage';
 import { ExecutionLogsPage } from './pages/ExecutionLogsPage';
+import { DashboardPage } from './pages/DashboardPage';
 
 const theme = createTheme({
   primaryColor: 'blue',
@@ -40,14 +41,15 @@ const theme = createTheme({
   },
 });
 
-export default function App() {
+export function App() {
   return (
     <MantineProvider theme={theme} defaultColorScheme="dark">
       <Notifications />
       <BrowserRouter>
         <Layout>
           <Routes>
-            <Route path="/" element={<ScriptList />} />
+            <Route path="/" element={<DashboardPage />} />
+            <Route path="/scripts" element={<ScriptList />} />
             <Route path="/scripts/new" element={<ScriptForm />} />
             <Route path="/scripts/:id" element={<ScriptDetailPage />} />
             <Route
