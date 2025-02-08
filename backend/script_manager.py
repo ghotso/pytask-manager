@@ -270,9 +270,35 @@ class ScriptManager:
                 except Exception as e:
                     logger.error(f"Error terminating pip process: {e}")
 
+    async def has_uninstalled_dependencies(self) -> bool:
+        """Check if any dependencies are not installed."""
+        if not self.venv_dir.exists() or not self.python_path.exists():
+            return True
+            
+        installed_versions = await self.get_installed_versions()
+        async with get_session_context() as session:
+            script = await session.get(Script, self.script_id)
+            if not script:
+                return True
+                
+            for dep in script.dependencies:
+                if not dep.installed_version or dep.package_name.lower() not in {k.lower() for k in installed_versions.keys()}:
+                    return True
+            
+            return False
+
     async def execute(self, execution_id: int) -> AsyncGenerator[str, None]:
         """Execute the script and stream its output."""
-        logger = logging.getLogger(__name__)
+        logger.info(f"Executing script {self.script_id}")
+        
+        # Check for uninstalled dependencies first
+        if await self.has_uninstalled_dependencies():
+            yield "Error: Cannot execute script with uninstalled dependencies\n"
+            raise RuntimeError("Cannot execute script with uninstalled dependencies")
+            
+        # Create output file path
+        output_file_path = self.script_dir / f"output_{execution_id}.txt"
+        script_path = self.script_path
         process = None
         stdout_task = None
         stderr_task = None
@@ -281,15 +307,11 @@ class ScriptManager:
         
         try:
             # Ensure script exists
-            script_path = self.script_dir / "script.py"
             if not script_path.exists():
                 raise FileNotFoundError(f"Script file not found: {script_path}")
             
-            # Create output file path
-            output_path = self.script_dir / f"output_{execution_id}.txt"
-            
             # Open output file in binary mode first for better buffering
-            binary_file = open(output_path, "wb", buffering=0)  # Unbuffered binary stream
+            binary_file = open(str(output_file_path), "wb", buffering=0)  # Unbuffered binary stream
             output_file = io.TextIOWrapper(
                 binary_file,
                 encoding='utf-8',
@@ -356,7 +378,7 @@ class ScriptManager:
                     
                     # Read and yield output
                     try:
-                        with open(output_path, 'r') as f:
+                        with open(str(output_file_path), 'r') as f:
                             content = f.read()
                             if content:
                                 yield content

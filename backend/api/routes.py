@@ -3,6 +3,7 @@ import asyncio
 import logging
 import os
 import time
+import venv
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional, Dict, Any, cast
@@ -738,10 +739,10 @@ async def dependency_websocket_endpoint(
             sent_messages.add(initial_message)
             logger.info("Sent initial connection message")
         
-        # Wait for output file to be created (max 10 seconds)
+        # Wait for output file to be created (max 30 seconds)
         start_time = time.monotonic()
         while not output_file.exists():
-            if time.monotonic() - start_time > 10:
+            if time.monotonic() - start_time > 30:
                 logger.warning("Output file not created within timeout")
                 await websocket.send_text("Error: Output file not created within timeout")
                 return
@@ -828,6 +829,34 @@ async def _install_dependencies_task(script_id: int) -> None:
                     file.unlink()
             
             try:
+                # Ensure script directory exists
+                manager.script_dir.mkdir(parents=True, exist_ok=True)
+                
+                # Write requirements.txt
+                requirements = []
+                for dep in script.dependencies:
+                    if not dep.version_spec or dep.version_spec in ['*', '']:
+                        requirements.append(dep.package_name)
+                    elif dep.version_spec.startswith('=='):
+                        requirements.append(f"{dep.package_name}{dep.version_spec}")
+                    elif dep.version_spec.startswith(('>=', '<=', '>', '<', '~=')):
+                        requirements.append(f"{dep.package_name}{dep.version_spec}")
+                    else:
+                        requirements.append(dep.package_name)
+                
+                manager.requirements_path.write_text("\n".join(requirements))
+                
+                # Create virtual environment if it doesn't exist
+                if not manager.venv_dir.exists() or not manager.python_path.exists():
+                    builder = venv.EnvBuilder(
+                        system_site_packages=False,
+                        clear=True,
+                        with_pip=True,
+                        upgrade_deps=True,
+                        symlinks=False
+                    )
+                    builder.create(manager.venv_dir)
+                
                 # Silently upgrade pip, setuptools, and wheel (no output logging)
                 await manager._run_pip("install", "--upgrade", "pip", "setuptools", "wheel", "--quiet")
                 
