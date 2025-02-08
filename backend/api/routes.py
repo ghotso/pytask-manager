@@ -862,7 +862,14 @@ async def _install_dependencies_task(script_id: int) -> None:
                 
                 # Install each dependency individually with full logging
                 for dep in script.dependencies:
-                    package_spec = f"{dep.package_name}{dep.version_spec}" if dep.version_spec else dep.package_name
+                    if not dep.version_spec or dep.version_spec in ['*', '']:
+                        package_spec = dep.package_name
+                    elif dep.version_spec.startswith('=='):
+                        package_spec = f"{dep.package_name}{dep.version_spec}"
+                    elif dep.version_spec.startswith(('>=', '<=', '>', '<', '~=')):
+                        package_spec = f"{dep.package_name}{dep.version_spec}"
+                    else:
+                        package_spec = dep.package_name
                     await manager._run_pip("install", package_spec, "--no-cache-dir")
                 
                 # Get installed versions
