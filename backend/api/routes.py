@@ -63,9 +63,7 @@ async def list_scripts(
         .options(selectinload(Script.schedules))
         .options(
             selectinload(
-                Script.executions.and_(
-                    Execution.started_at <= datetime.now(timezone.utc)
-                )
+                Script.executions
             )
         )
     )
@@ -87,11 +85,14 @@ async def list_scripts(
             # Sort executions by started_at in descending order and take the first one
             sorted_executions = sorted(
                 script.executions,
-                key=lambda x: (x.started_at or datetime.min.replace(tzinfo=timezone.utc)),
+                key=lambda x: x.started_at if x.started_at is not None else datetime.min.replace(tzinfo=timezone.utc),
                 reverse=True
             )
             if sorted_executions:
+                # Set the most recent execution as last_execution
                 setattr(script, 'last_execution', sorted_executions[0])
+            else:
+                setattr(script, 'last_execution', None)
         else:
             setattr(script, 'last_execution', None)
     
@@ -681,21 +682,28 @@ async def websocket_endpoint(
                 return
             
             try:
-                # Check execution status
+                # Check execution status in a new session context
                 async with get_session_context() as check_session:
-                    execution = await check_session.merge(execution)
-                    await check_session.refresh(execution)
+                    # Get a fresh copy of the execution
+                    result = await check_session.execute(
+                        select(Execution).where(Execution.id == execution.id)
+                    )
+                    current_execution = result.scalar_one_or_none()
+                    
+                    if not current_execution:
+                        logger.error(f"Execution {execution.id} not found")
+                        continue
                     
                     # Send status update if changed
-                    if execution.status != last_status:
-                        status_message = f"STATUS: {execution.status}"
+                    if current_execution.status != last_status:
+                        status_message = f"STATUS: {current_execution.status}"
                         await websocket.send_text(status_message)
-                        last_status = execution.status
+                        last_status = current_execution.status
                     
                     # If execution failed, send error and return
-                    if execution.status == ExecutionStatus.FAILURE:
-                        error_msg = execution.error_message or "Execution failed before output file was created"
-                        logger.warning(f"Execution {execution.id} failed: {error_msg}")
+                    if current_execution.status == ExecutionStatus.FAILURE:
+                        error_msg = current_execution.error_message or "Execution failed before output file was created"
+                        logger.warning(f"Execution {current_execution.id} failed: {error_msg}")
                         await websocket.send_text(f"Error: {error_msg}")
                         return
                         
@@ -710,6 +718,25 @@ async def websocket_endpoint(
             file_handle = file
             
             while True:
+                # Check execution status in a new session context
+                try:
+                    async with get_session_context() as check_session:
+                        result = await check_session.execute(
+                            select(Execution).where(Execution.id == execution.id)
+                        )
+                        current_execution = result.scalar_one_or_none()
+                        
+                        if current_execution and current_execution.status != last_status:
+                            status_message = f"STATUS: {current_execution.status}"
+                            await websocket.send_text(status_message)
+                            last_status = current_execution.status
+                            
+                            # If execution is complete, set flag to break after sending output
+                            if current_execution.status in [ExecutionStatus.SUCCESS, ExecutionStatus.FAILURE]:
+                                should_break = True
+                except Exception as e:
+                    logger.error(f"Error checking execution status: {e}")
+                
                 # Read new content
                 file.seek(last_position)
                 new_content = file.read()
@@ -732,11 +759,8 @@ async def websocket_endpoint(
                         logger.error(f"Failed to decode file content: {e}")
                         continue
                 
-                # If execution is complete, send status and break
-                if execution.status in [ExecutionStatus.SUCCESS, ExecutionStatus.FAILURE]:
-                    if status_message and status_message not in sent_messages:
-                        await websocket.send_text(status_message)
-                        sent_messages.add(status_message)
+                # Break if execution is complete and we've sent all output
+                if should_break:
                     await websocket.send_text("Execution finished.")
                     break
                 
