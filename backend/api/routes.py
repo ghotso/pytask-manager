@@ -55,16 +55,46 @@ async def list_scripts(
     tag: Optional[str] = None,
 ) -> List[Script]:
     """List all scripts, optionally filtered by tag."""
+    # Base query with all needed relationships
     query = (
         select(Script)
         .options(selectinload(Script.tags))
         .options(selectinload(Script.dependencies))
         .options(selectinload(Script.schedules))
+        .options(
+            selectinload(
+                Script.executions.and_(
+                    Execution.started_at <= datetime.now(timezone.utc)
+                )
+            )
+        )
     )
+    
+    # Add tag filter if specified
     if tag:
         query = query.join(Script.tags).where(Tag.name == tag)
+    
+    # Order by script ID to ensure consistent results
+    query = query.order_by(Script.id)
+    
+    # Execute query and get results
     result = await session.execute(query)
-    return cast(List[Script], result.scalars().all())
+    scripts = list(result.scalars().all())  # Explicitly convert to List[Script]
+    
+    # For each script, find its last execution
+    for script in scripts:
+        if script.executions:
+            # Sort executions by started_at in descending order and take the first one
+            last_execution = sorted(
+                script.executions,
+                key=lambda x: x.started_at,
+                reverse=True
+            )[0]
+            setattr(script, 'last_execution', last_execution)
+        else:
+            setattr(script, 'last_execution', None)
+    
+    return scripts
 
 
 @router.post("/scripts", response_model=ScriptRead)
@@ -648,25 +678,37 @@ async def websocket_endpoint(
                 logger.warning("Output file not created within timeout")
                 await websocket.send_text("Error: Output file not created within timeout")
                 return
+            
+            try:
+                # Check execution status
+                async with get_session_context() as check_session:
+                    execution = await check_session.merge(execution)
+                    await check_session.refresh(execution)
+                    if execution.status != last_status:
+                        status_message = f"STATUS: {execution.status}"
+                        last_status = execution.status
+            except Exception as e:
+                logger.error(f"Error checking execution status: {e}")
+                continue
+                
             await asyncio.sleep(0.1)
             
-            # Check if execution failed before file was created
-            await session.refresh(execution)
-            if execution.status == ExecutionStatus.FAILURE:
-                logger.warning("Execution failed before output file was created")
-                await websocket.send_text(f"Error: {execution.error_message}")
-                return
-        
         # Open file in binary mode for better buffering
         with open(output_file, 'rb') as file:
             file_handle = file
             
             while True:
                 # Check execution status
-                await session.refresh(execution)
-                if execution.status != last_status:
-                    status_message = f"STATUS: {execution.status}"
-                    last_status = execution.status
+                try:
+                    async with get_session_context() as check_session:
+                        execution = await check_session.merge(execution)
+                        await check_session.refresh(execution)
+                        if execution.status != last_status:
+                            status_message = f"STATUS: {execution.status}"
+                            last_status = execution.status
+                except Exception as e:
+                    logger.error(f"Error checking execution status: {e}")
+                    continue
                 
                 # Read new content
                 file.seek(last_position)
