@@ -79,18 +79,19 @@ async def list_scripts(
     
     # Execute query and get results
     result = await session.execute(query)
-    scripts = list(result.scalars().all())  # Explicitly convert to List[Script]
+    scripts = list(result.scalars().all())
     
     # For each script, find its last execution
     for script in scripts:
         if script.executions:
             # Sort executions by started_at in descending order and take the first one
-            last_execution = sorted(
+            sorted_executions = sorted(
                 script.executions,
-                key=lambda x: x.started_at,
+                key=lambda x: (x.started_at or datetime.min.replace(tzinfo=timezone.utc)),
                 reverse=True
-            )[0]
-            setattr(script, 'last_execution', last_execution)
+            )
+            if sorted_executions:
+                setattr(script, 'last_execution', sorted_executions[0])
         else:
             setattr(script, 'last_execution', None)
     
@@ -684,32 +685,31 @@ async def websocket_endpoint(
                 async with get_session_context() as check_session:
                     execution = await check_session.merge(execution)
                     await check_session.refresh(execution)
+                    
+                    # Send status update if changed
                     if execution.status != last_status:
                         status_message = f"STATUS: {execution.status}"
+                        await websocket.send_text(status_message)
                         last_status = execution.status
+                    
+                    # If execution failed, send error and return
+                    if execution.status == ExecutionStatus.FAILURE:
+                        error_msg = execution.error_message or "Execution failed before output file was created"
+                        logger.warning(f"Execution {execution.id} failed: {error_msg}")
+                        await websocket.send_text(f"Error: {error_msg}")
+                        return
+                        
             except Exception as e:
                 logger.error(f"Error checking execution status: {e}")
                 continue
-                
-            await asyncio.sleep(0.1)
+            
+            await asyncio.sleep(0.1)  # Short sleep to prevent busy waiting
             
         # Open file in binary mode for better buffering
         with open(output_file, 'rb') as file:
             file_handle = file
             
             while True:
-                # Check execution status
-                try:
-                    async with get_session_context() as check_session:
-                        execution = await check_session.merge(execution)
-                        await check_session.refresh(execution)
-                        if execution.status != last_status:
-                            status_message = f"STATUS: {execution.status}"
-                            last_status = execution.status
-                except Exception as e:
-                    logger.error(f"Error checking execution status: {e}")
-                    continue
-                
                 # Read new content
                 file.seek(last_position)
                 new_content = file.read()
