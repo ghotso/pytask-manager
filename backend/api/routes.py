@@ -627,27 +627,20 @@ async def websocket_endpoint(
     script_id: int,
     session: AsyncSession = Depends(get_session),
 ):
-    """WebSocket endpoint for real-time script execution."""
-    logger = logging.getLogger(__name__)
-    logger.info("WebSocket connection initiated")
-    
-    # Track file handle and position to prevent race conditions
-    file_handle = None
-    last_position = 0
-    execution = None
-    sent_messages = set()  # Track sent messages to prevent duplicates
-    status_message = None  # Store status message to send at the end
+    """WebSocket endpoint for script execution output."""
+    logger.info(f"WebSocket connection opened for script {script_id}")
+    sent_messages = set()
     
     try:
         await websocket.accept()
         logger.info("WebSocket connection accepted")
         
-        # Get the most recent running execution for this script
+        # Get the most recent running execution
         result = await session.execute(
             select(Execution)
             .where(
                 Execution.script_id == script_id,
-                Execution.status.in_([ExecutionStatus.PENDING, ExecutionStatus.RUNNING])
+                Execution.status == ExecutionStatus.RUNNING
             )
             .order_by(Execution.started_at.desc())
         )
@@ -663,7 +656,6 @@ async def websocket_endpoint(
         
         # Create script manager to read output
         manager = ScriptManager(script_id, base_dir=str(settings.scripts_dir))
-        last_status = execution.status
         output_file = manager.script_dir / f"output_{execution.id}.txt"
         
         # Send initial connection message only if not sent before
@@ -675,7 +667,9 @@ async def websocket_endpoint(
         
         # Wait for output file to be created (max 30 seconds)
         start_time = time.monotonic()
-        while not output_file.exists():
+        should_break = False
+        
+        while not output_file.exists() and not should_break:
             if time.monotonic() - start_time > 30:
                 logger.warning("Output file not created within timeout")
                 await websocket.send_text("Error: Output file not created within timeout")
@@ -694,89 +688,63 @@ async def websocket_endpoint(
                         logger.error(f"Execution {execution.id} not found")
                         continue
                     
-                    # Send status update if changed
-                    if current_execution.status != last_status:
-                        status_message = f"STATUS: {current_execution.status}"
-                        await websocket.send_text(status_message)
-                        last_status = current_execution.status
-                    
-                    # If execution failed, send error and return
+                    # Check if execution failed before output file was created
                     if current_execution.status == ExecutionStatus.FAILURE:
-                        error_msg = current_execution.error_message or "Execution failed before output file was created"
-                        logger.warning(f"Execution {current_execution.id} failed: {error_msg}")
-                        await websocket.send_text(f"Error: {error_msg}")
-                        return
-                        
+                        logger.warning(f"Execution {execution.id} failed before output file was created")
+                        await websocket.send_text(f"STATUS: {current_execution.status}")
+                        if current_execution.error_message:
+                            await websocket.send_text(f"Error: {current_execution.error_message}")
+                        should_break = True
+                        continue
+            
             except Exception as e:
                 logger.error(f"Error checking execution status: {e}")
                 continue
             
-            await asyncio.sleep(0.1)  # Short sleep to prevent busy waiting
-            
-        # Open file in binary mode for better buffering
-        with open(output_file, 'rb') as file:
-            file_handle = file
-            
-            while True:
-                # Check execution status in a new session context
-                try:
-                    async with get_session_context() as check_session:
-                        result = await check_session.execute(
-                            select(Execution).where(Execution.id == execution.id)
-                        )
-                        current_execution = result.scalar_one_or_none()
-                        
-                        if current_execution and current_execution.status != last_status:
-                            status_message = f"STATUS: {current_execution.status}"
-                            await websocket.send_text(status_message)
-                            last_status = current_execution.status
-                            
-                            # If execution is complete, set flag to break after sending output
-                            if current_execution.status in [ExecutionStatus.SUCCESS, ExecutionStatus.FAILURE]:
-                                should_break = True
-                except Exception as e:
-                    logger.error(f"Error checking execution status: {e}")
-                
-                # Read new content
-                file.seek(last_position)
-                new_content = file.read()
-                
-                if new_content:
-                    try:
-                        # Decode and process new content line by line
-                        text = new_content.decode('utf-8')
-                        lines = text.splitlines()
-                        
-                        for line in lines:
-                            # Remove ERROR: prefix from log lines
-                            clean_line = line.replace('ERROR: ', '')
-                            if clean_line and clean_line not in sent_messages:
-                                await websocket.send_text(clean_line)
-                                sent_messages.add(clean_line)
-                        
-                        last_position = file.tell()
-                    except UnicodeDecodeError as e:
-                        logger.error(f"Failed to decode file content: {e}")
-                        continue
-                
-                # Break if execution is complete and we've sent all output
-                if should_break:
-                    await websocket.send_text("Execution finished.")
-                    break
-                
-                await asyncio.sleep(0.1)  # Small delay to prevent busy waiting
-                
+            await asyncio.sleep(0.5)
+        
+        if should_break:
+            return
+        
+        # Read and stream output
+        try:
+            async for line in manager.read_output(execution.id):
+                if line not in sent_messages:
+                    await websocket.send_text(line)
+                    sent_messages.add(line)
+                    
+                    # Check execution status periodically
+                    if "STATUS:" in line:
+                        try:
+                            async with get_session_context() as check_session:
+                                result = await check_session.execute(
+                                    select(Execution).where(Execution.id == execution.id)
+                                )
+                                current_execution = result.scalar_one_or_none()
+                                
+                                if current_execution and current_execution.status == ExecutionStatus.FAILURE:
+                                    if current_execution.error_message:
+                                        error_msg = f"Error: {current_execution.error_message}"
+                                        if error_msg not in sent_messages:
+                                            await websocket.send_text(error_msg)
+                                            sent_messages.add(error_msg)
+                        except Exception as e:
+                            logger.error(f"Error checking execution status: {e}")
+                            continue
+                    
+        except Exception as e:
+            logger.error(f"Error reading output: {e}")
+            await websocket.send_text(f"Error reading output: {str(e)}")
+    
     except WebSocketDisconnect:
-        logger.info("WebSocket disconnected by client")
+        logger.info("WebSocket connection closed by client")
     except Exception as e:
-        logger.error(f"Error in WebSocket connection: {e}")
-        if not websocket.client_state.DISCONNECTED:
+        logger.error(f"WebSocket error: {e}")
+        try:
             await websocket.send_text(f"Error: {str(e)}")
-    finally:
-        if file_handle:
-            file_handle.close()
-        if not websocket.client_state.DISCONNECTED:
-            await websocket.close()
+            await websocket.close(code=1000)
+        except Exception:
+            pass
 
 
 @router.websocket("/scripts/{script_id}/dependencies/ws")
