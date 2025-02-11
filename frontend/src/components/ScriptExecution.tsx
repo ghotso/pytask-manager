@@ -63,37 +63,51 @@ export function ScriptExecution() {
     // Close existing connection if any
     cleanupWebSocket();
     
-    // Create new WebSocket connection with execution ID
-    const wsUrl = `${WS_BASE_URL}/api/scripts/${scriptId}/ws?execution_id=${executionId}`;
-    wsRef.current = new WebSocket(wsUrl);
-    
-    wsRef.current.onopen = () => {
-      console.log('WebSocket connected');
-    };
-    
-    wsRef.current.onmessage = (event) => {
-      const message = event.data;
-      setOutput(prev => prev + message + '\n');
+    const connectWebSocket = (retryCount = 0) => {
+      // Create new WebSocket connection with execution ID
+      const wsUrl = `${WS_BASE_URL}/api/scripts/${scriptId}/ws?execution_id=${executionId}`;
+      wsRef.current = new WebSocket(wsUrl);
       
-      if (message.startsWith('STATUS:')) {
-        const status = message.split(':')[1].trim();
-        setExecutionStatus(status as ExecutionStatus);
+      wsRef.current.onopen = () => {
+        console.log('WebSocket connected');
+      };
+      
+      wsRef.current.onmessage = (event) => {
+        const message = event.data;
         
-        if (status === ExecutionStatus.SUCCESS || status === ExecutionStatus.FAILURE) {
-          mutate();  // Refresh script data
-          cleanupWebSocket();
+        // Don't add error messages about execution ID to output
+        if (!message.includes('No execution ID provided')) {
+          setOutput(prev => prev + message + '\n');
         }
-      }
+        
+        if (message.startsWith('STATUS:')) {
+          const status = message.split(':')[1].trim();
+          setExecutionStatus(status as ExecutionStatus);
+          
+          if (status === ExecutionStatus.SUCCESS || status === ExecutionStatus.FAILURE) {
+            mutate();  // Refresh script data
+            cleanupWebSocket();
+          }
+        }
+      };
+      
+      wsRef.current.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        if (retryCount < 3) {
+          console.log(`Retrying WebSocket connection (attempt ${retryCount + 1})...`);
+          setTimeout(() => connectWebSocket(retryCount + 1), 1000);
+        } else {
+          setOutput(prev => prev + 'Error: WebSocket connection failed after 3 attempts\n');
+        }
+      };
+      
+      wsRef.current.onclose = () => {
+        console.log('WebSocket closed');
+      };
     };
     
-    wsRef.current.onerror = (error) => {
-      console.error('WebSocket error:', error);
-      setOutput(prev => prev + 'Error: WebSocket connection failed\n');
-    };
-    
-    wsRef.current.onclose = () => {
-      console.log('WebSocket closed');
-    };
+    // Add a small delay before first connection attempt
+    setTimeout(() => connectWebSocket(), 500);
   };
 
   const handleExecute = async () => {
