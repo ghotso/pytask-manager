@@ -107,6 +107,9 @@ export function ScriptExecution() {
     
     try {
       const response = await scriptsApi.execute(script.id);
+      if (!response.execution_id) {
+        throw new Error('No execution ID received from server');
+      }
       console.log('Execution started:', response);
       
       // Set up WebSocket connection with execution ID
@@ -114,7 +117,7 @@ export function ScriptExecution() {
       
     } catch (error) {
       console.error('Failed to execute script:', error);
-      setOutput('Failed to execute script\n');
+      setOutput(prev => prev + `Error: ${error instanceof Error ? error.message : 'Failed to execute script'}\n`);
       setExecutionStatus(ExecutionStatus.FAILURE);
       setIsExecuting(false);
     }

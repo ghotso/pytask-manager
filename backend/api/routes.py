@@ -632,9 +632,19 @@ async def websocket_endpoint(
     
     try:
         # Get the execution ID from the query parameters
-        execution_id = int(websocket.query_params.get("execution_id", 0))
-        if not execution_id:
-            await websocket.send_text("Error: No execution ID provided")
+        execution_id_str = websocket.query_params.get("execution_id")
+        if not execution_id_str:
+            logger.error("No execution ID provided in WebSocket connection")
+            await websocket.send_text("Error: No execution ID provided in WebSocket connection")
+            await websocket.close()
+            return
+            
+        try:
+            execution_id = int(execution_id_str)
+        except ValueError:
+            logger.error(f"Invalid execution ID format: {execution_id_str}")
+            await websocket.send_text(f"Error: Invalid execution ID format: {execution_id_str}")
+            await websocket.close()
             return
             
         # Get execution details
@@ -644,7 +654,16 @@ async def websocket_endpoint(
         execution = result.scalar_one_or_none()
         
         if not execution:
+            logger.error(f"Execution {execution_id} not found")
             await websocket.send_text(f"Error: Execution {execution_id} not found")
+            await websocket.close()
+            return
+            
+        # Verify script ID matches
+        if execution.script_id != script_id:
+            logger.error(f"Execution {execution_id} does not belong to script {script_id}")
+            await websocket.send_text(f"Error: Execution {execution_id} does not belong to script {script_id}")
+            await websocket.close()
             return
         
         # Create script manager to read output
