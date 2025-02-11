@@ -76,9 +76,18 @@ export function ScriptExecution() {
         const message = event.data;
         
         // Don't add error messages about execution ID to output
-        if (!message.includes('No execution ID provided')) {
-          setOutput(prev => prev + message + '\n');
+        if (message.includes('No execution ID provided') || message.includes('Execution not found')) {
+          if (retryCount < 5) {
+            console.log(`Retrying WebSocket connection (attempt ${retryCount + 1})...`);
+            wsRef.current?.close();
+            setTimeout(() => connectWebSocket(retryCount + 1), 1000);
+          } else {
+            setOutput(prev => prev + 'Error: Failed to connect to execution stream\n');
+          }
+          return;
         }
+        
+        setOutput(prev => prev + message + '\n');
         
         if (message.startsWith('STATUS:')) {
           const status = message.split(':')[1].trim();
@@ -93,11 +102,11 @@ export function ScriptExecution() {
       
       wsRef.current.onerror = (error) => {
         console.error('WebSocket error:', error);
-        if (retryCount < 3) {
+        if (retryCount < 5) {
           console.log(`Retrying WebSocket connection (attempt ${retryCount + 1})...`);
           setTimeout(() => connectWebSocket(retryCount + 1), 1000);
         } else {
-          setOutput(prev => prev + 'Error: WebSocket connection failed after 3 attempts\n');
+          setOutput(prev => prev + 'Error: WebSocket connection failed after 5 attempts\n');
         }
       };
       
@@ -106,8 +115,8 @@ export function ScriptExecution() {
       };
     };
     
-    // Add a small delay before first connection attempt
-    setTimeout(() => connectWebSocket(), 500);
+    // Add a longer initial delay to allow the execution to be created
+    setTimeout(() => connectWebSocket(), 1000);
   };
 
   const handleExecute = async () => {

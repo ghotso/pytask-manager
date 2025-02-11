@@ -647,14 +647,23 @@ async def websocket_endpoint(
             await websocket.close()
             return
             
-        # Get execution details
-        result = await session.execute(
-            select(Execution).where(Execution.id == execution_id)
-        )
-        execution = result.scalar_one_or_none()
-        
+        # Wait for execution to be ready (max 5 seconds)
+        start_time = time.monotonic()
+        execution = None
+        while time.monotonic() - start_time < 5:
+            # Get execution details
+            result = await session.execute(
+                select(Execution).where(Execution.id == execution_id)
+            )
+            execution = result.scalar_one_or_none()
+            
+            if execution:
+                break
+                
+            await asyncio.sleep(0.1)  # Short delay between checks
+            
         if not execution:
-            logger.error(f"Execution {execution_id} not found")
+            logger.error(f"Execution {execution_id} not found after waiting")
             await websocket.send_text(f"Error: Execution {execution_id} not found")
             await websocket.close()
             return
