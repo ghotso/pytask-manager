@@ -300,19 +300,21 @@ export function ScriptDetailPage() {
     setIsExecuting(true);
     setExecutionOutput('');
     setExecutionStatus(ExecutionStatus.PENDING);
+    setShowExecutionModal(true);
 
     try {
-      const response = await scriptsApi.execute(Number(id));
+      const response = await scriptsApi.execute(scriptId);
       console.log('Execution started:', response);
 
       if (!response.execution_id) {
         throw new Error('No execution ID received from server');
       }
 
-      const ws = new WebSocket(`${WS_BASE_URL}/api/scripts/${id}/ws?execution_id=${response.execution_id}`);
+      const ws = new WebSocket(`${WS_BASE_URL}/api/executions/${response.execution_id}/output`);
 
       ws.onopen = () => {
         console.log('WebSocket connected');
+        setExecutionOutput(prev => prev + 'Connected to execution stream...\n');
       };
 
       ws.onmessage = (event) => {
@@ -320,11 +322,15 @@ export function ScriptDetailPage() {
         console.log('WebSocket message:', message);
 
         if (message.startsWith('STATUS:')) {
-          const status = message.split(':')[1].trim();
+          const status = message.split(':')[1].trim().toUpperCase();
           setExecutionStatus(status as ExecutionStatus);
+          
           if (status === ExecutionStatus.SUCCESS || status === ExecutionStatus.FAILURE) {
             setIsExecuting(false);
             ws.close();
+            
+            // Refresh executions list
+            loadExecutions();
           }
         } else {
           setExecutionOutput(prev => prev + message + '\n');
@@ -335,6 +341,7 @@ export function ScriptDetailPage() {
         console.error('WebSocket error:', error);
         setExecutionOutput(prev => prev + 'Error: WebSocket connection failed\n');
         setIsExecuting(false);
+        setExecutionStatus(ExecutionStatus.FAILURE);
       };
 
       ws.onclose = () => {
@@ -342,15 +349,16 @@ export function ScriptDetailPage() {
         setIsExecuting(false);
       };
 
-      setShowExecutionModal(true);
     } catch (error) {
       console.error('Error executing script:', error);
+      setExecutionStatus(ExecutionStatus.FAILURE);
+      setIsExecuting(false);
+      setExecutionOutput(prev => prev + `Error executing script: ${error}\n`);
       notifications.show({
         title: 'Error',
         message: 'Failed to execute script',
         color: 'red',
       });
-      setIsExecuting(false);
     }
   };
 
