@@ -274,8 +274,14 @@ class SchedulerService:
         
         try:
             async with get_session_context() as session:
-                # Get script and schedule
-                script = await session.get(Script, script_id)
+                # Get script and schedule with dependencies
+                result = await session.execute(
+                    select(Script)
+                    .options(selectinload(Script.dependencies))
+                    .where(Script.id == script_id)
+                )
+                script = result.scalar_one_or_none()
+                
                 schedule = await session.get(Schedule, schedule_id)
                 
                 if not script or not schedule:
@@ -314,9 +320,36 @@ class SchedulerService:
                 await session.commit()
                 await session.refresh(execution)
                 
-                # Run script with output collection
-                await self._run_script_with_output(manager, script, execution.id)
+                # Run script with output collection in a new task
+                task = asyncio.create_task(self._run_script_with_output(manager, script, execution.id))
+                self._active_executions[execution.id] = task
                 
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    logger.warning(f"Execution {execution.id} was cancelled")
+                    async with get_session_context() as cancel_session:
+                        execution = await cancel_session.get(Execution, execution.id)
+                        if execution:
+                            execution.status = ExecutionStatus.FAILURE
+                            execution.completed_at = datetime.now(timezone.utc)
+                            execution.error_message = "Execution cancelled"
+                            await cancel_session.commit()
+                except Exception as e:
+                    logger.exception(f"Error during script execution {execution.id}")
+                    async with get_session_context() as error_session:
+                        execution = await error_session.get(Execution, execution.id)
+                        if execution:
+                            execution.status = ExecutionStatus.FAILURE
+                            execution.completed_at = datetime.now(timezone.utc)
+                            execution.error_message = str(e)
+                            await error_session.commit()
+                finally:
+                    if execution.id in self._active_executions:
+                        del self._active_executions[execution.id]
+                    if manager:
+                        manager.cleanup(remove_environment=False)
+            
         except Exception as e:
             logger.exception(f"Error running scheduled script {script_id}")
 

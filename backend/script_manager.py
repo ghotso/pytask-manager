@@ -14,6 +14,7 @@ import aiofiles
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from .config import settings
 from .database import get_session_context
@@ -278,20 +279,42 @@ class ScriptManager:
                     logger.error(f"Error terminating pip process: {e}")
 
     async def has_uninstalled_dependencies(self) -> bool:
-        """Check if any dependencies are not installed."""
-        if not self.venv_dir.exists() or not self.python_path.exists():
-            return True
-            
-        installed_versions = await self.get_installed_versions()
-        async with get_session_context() as session:
-            script = await session.get(Script, self.script_id)
-            if not script:
-                return True
+        """Check if script has any uninstalled dependencies."""
+        try:
+            async with get_session_context() as session:
+                # Get a fresh copy of the script with dependencies
+                result = await session.execute(
+                    select(Script)
+                    .options(selectinload(Script.dependencies))
+                    .where(Script.id == self.script_id)
+                )
+                script = result.scalar_one_or_none()
                 
-            for dep in script.dependencies:
-                if not dep.installed_version or dep.package_name.lower() not in {k.lower() for k in installed_versions.keys()}:
-                    return True
-            
+                if not script:
+                    logger.error(f"Script {self.script_id} not found")
+                    return False
+                
+                # Get currently installed versions
+                installed_versions = await self.get_installed_versions()
+                
+                # Check each dependency
+                for dep in script.dependencies:
+                    if dep.package_name not in installed_versions:
+                        return True
+                        
+                    installed_version = installed_versions[dep.package_name]
+                    if not installed_version:
+                        return True
+                        
+                    # Update installed version in database if changed
+                    if installed_version != dep.installed_version:
+                        dep.installed_version = installed_version
+                        await session.commit()
+                
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error checking dependencies: {e}")
             return False
 
     async def execute(self, execution_id: int) -> AsyncGenerator[str, None]:

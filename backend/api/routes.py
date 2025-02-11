@@ -1162,3 +1162,63 @@ async def _execute_script(script_id: int, execution_id: int) -> None:
                 manager.cleanup(remove_environment=False)
             except:
                 pass
+
+
+@router.websocket("/executions/{execution_id}/output")
+async def execution_output(websocket: WebSocket, execution_id: int):
+    """Stream execution output via WebSocket."""
+    await websocket.accept()
+    
+    try:
+        # Get initial execution status
+        async with get_session_context() as session:
+            execution = await session.get(Execution, execution_id)
+            if not execution:
+                await websocket.close(code=4004, reason="Execution not found")
+                return
+            
+            script = await session.get(Script, execution.script_id)
+            if not script:
+                await websocket.close(code=4004, reason="Script not found")
+                return
+            
+            # Initialize script manager
+            manager = ScriptManager(script.id)
+            
+            # Stream output
+            try:
+                async for line in manager.read_output(execution_id):
+                    # Get fresh execution status
+                    async with get_session_context() as status_session:
+                        current_execution = await status_session.get(Execution, execution_id)
+                        if current_execution and current_execution.status == ExecutionStatus.FAILURE:
+                            # If execution failed, send error message
+                            error_msg = current_execution.error_message or "Unknown error occurred"
+                            await websocket.send_text(f"STATUS: {current_execution.status}\nError: {error_msg}")
+                            break
+                        elif current_execution and current_execution.status == ExecutionStatus.SUCCESS:
+                            # If execution succeeded, send success message
+                            await websocket.send_text(f"STATUS: {current_execution.status}")
+                            break
+                        
+                    # Send output line
+                    if line:
+                        await websocket.send_text(line)
+                        
+            except Exception as e:
+                logger.error(f"Error reading output: {e}")
+                await websocket.send_text(f"Error: {str(e)}")
+                
+    except WebSocketDisconnect:
+        logger.info(f"WebSocket disconnected for execution {execution_id}")
+    except Exception as e:
+        logger.error(f"Error in WebSocket connection: {e}")
+        try:
+            await websocket.close(code=4000, reason=str(e))
+        except:
+            pass
+    finally:
+        try:
+            await websocket.close()
+        except:
+            pass
