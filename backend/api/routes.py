@@ -658,12 +658,8 @@ async def websocket_endpoint(
         manager = ScriptManager(script_id, base_dir=str(settings.scripts_dir))
         output_file = manager.script_dir / f"output_{execution.id}.txt"
         
-        # Send initial connection message only if not sent before
-        initial_message = "Connected to execution stream..."
-        if initial_message not in sent_messages:
-            await websocket.send_text(initial_message)
-            sent_messages.add(initial_message)
-            logger.info("Sent initial connection message")
+        # Send initial connection message
+        await websocket.send_text("Connected to execution stream...")
         
         # Wait for output file to be created (max 30 seconds)
         start_time = time.monotonic()
@@ -678,7 +674,6 @@ async def websocket_endpoint(
             try:
                 # Check execution status in a new session context
                 async with get_session_context() as check_session:
-                    # Get a fresh copy of the execution
                     result = await check_session.execute(
                         select(Execution).where(Execution.id == execution.id)
                     )
