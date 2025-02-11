@@ -307,25 +307,36 @@ export function ScriptDetailPage() {
       const response = await scriptsApi.execute(scriptId);
       console.log('Execution started:', response);
 
-      // If no execution ID, try to get it from the executions list
-      if (!response.execution_id) {
-        console.log('No execution ID in response, checking executions list...');
-        await new Promise(resolve => setTimeout(resolve, 500)); // Wait for backend to create execution
-        await loadExecutions(); // Refresh executions list
+      let executionId = response.execution_id;
+      let retryCount = 0;
+      const maxRetries = 3;
+
+      // If no execution ID, retry getting it from the executions list
+      while (!executionId && retryCount < maxRetries) {
+        console.log(`Retry ${retryCount + 1}: Getting execution ID from executions list...`);
+        await new Promise(resolve => setTimeout(resolve, 500)); // Wait between retries
+        await loadExecutions();
         
-        // Get the most recent execution
-        const latestExecution = executions[0];
-        if (latestExecution && latestExecution.status === ExecutionStatus.RUNNING) {
-          response.execution_id = latestExecution.id;
-          console.log('Found execution ID from list:', response.execution_id);
+        // Get the most recent execution for this script
+        const latestExecution = executions.find(
+          e => e.script_id === scriptId && 
+          (e.status === ExecutionStatus.PENDING || e.status === ExecutionStatus.RUNNING)
+        );
+        
+        if (latestExecution) {
+          executionId = latestExecution.id;
+          console.log('Found execution ID:', executionId);
+          break;
         }
+        
+        retryCount++;
       }
 
-      if (!response.execution_id) {
-        throw new Error('Could not get execution ID');
+      if (!executionId) {
+        throw new Error('Could not get execution ID after retries');
       }
 
-      const ws = new WebSocket(`${WS_BASE_URL}/api/executions/${response.execution_id}/output`);
+      const ws = new WebSocket(`${WS_BASE_URL}/api/executions/${executionId}/output`);
       let isConnected = false;
 
       ws.onopen = () => {
@@ -366,7 +377,7 @@ export function ScriptDetailPage() {
         if (!isConnected) {
           // If we never connected, check the execution status directly
           loadExecutions().then(() => {
-            const execution = executions.find(e => e.id === response.execution_id);
+            const execution = executions.find(e => e.id === executionId);
             if (execution) {
               setExecutionStatus(execution.status);
               setIsExecuting(false);
@@ -381,14 +392,11 @@ export function ScriptDetailPage() {
       setIsExecuting(false);
       setExecutionOutput(prev => prev + `Error executing script: ${error}\n`);
       
-      // Only show notification for non-connection errors
-      if (error instanceof Error && !error.message.includes('execution ID')) {
-        notifications.show({
-          title: 'Error',
-          message: 'Failed to execute script',
-          color: 'red',
-        });
-      }
+      notifications.show({
+        title: 'Error',
+        message: 'Failed to execute script. Please check the execution output for details.',
+        color: 'red',
+      });
     }
   };
 
