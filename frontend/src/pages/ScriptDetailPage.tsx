@@ -64,7 +64,8 @@ export function ScriptDetailPage() {
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   
   // Modal content states
-  const [executionOutput, setExecutionOutput] = useState<string[]>([]);
+  const [executionOutput, setExecutionOutput] = useState<string>('');
+  const [executionStatus, setExecutionStatus] = useState<ExecutionStatus>(ExecutionStatus.PENDING);
   const [logContent, setLogContent] = useState('');
   const [selectedExecution, setSelectedExecution] = useState<Execution | null>(null);
 
@@ -287,64 +288,76 @@ export function ScriptDetailPage() {
 
   // Update handleRun to check dependencies first
   const handleRun = async () => {
-    // Check for uninstalled dependencies first
     if (hasUninstalledDependencies()) {
       notifications.show({
-        title: 'Error',
-        message: 'Please install all dependencies before running the script',
+        title: 'Cannot Execute Script',
+        message: 'Please install all dependencies before running the script.',
         color: 'red',
       });
       return;
     }
 
-    try {
-      setIsExecuting(true);
-      setShowExecutionModal(true);
-      setExecutionOutput([]);
+    setIsExecuting(true);
+    setExecutionOutput('');
+    setExecutionStatus(ExecutionStatus.PENDING);
 
+    try {
       const response = await scriptsApi.execute(Number(id));
       console.log('Execution started:', response);
 
-      const ws = new WebSocket(`${WS_BASE_URL}/api/scripts/${id}/ws`);
+      if (!response.execution_id) {
+        throw new Error('No execution ID received from server');
+      }
 
-      ws.onmessage = async (event) => {
-        const message = event.data;
-        setExecutionOutput(prev => [...prev, message]);
+      const ws = new WebSocket(`${WS_BASE_URL}/api/scripts/${id}/ws?execution_id=${response.execution_id}`);
 
-        // Check for execution completion
-        if (message.includes('Execution finished.')) {
-          setIsExecuting(false);
-          // Load the updated execution history
-          await loadExecutions();
-          // Refresh script data to get latest status
-          mutate();
-        }
+      ws.onopen = () => {
+        console.log('WebSocket connected');
       };
 
-      ws.onclose = () => {
-        console.log('WebSocket connection closed');
+      ws.onmessage = (event) => {
+        const message = event.data;
+        console.log('WebSocket message:', message);
+
+        if (message.startsWith('STATUS:')) {
+          const status = message.split(':')[1].trim();
+          setExecutionStatus(status as ExecutionStatus);
+          if (status === ExecutionStatus.SUCCESS || status === ExecutionStatus.FAILURE) {
+            setIsExecuting(false);
+            ws.close();
+          }
+        } else {
+          setExecutionOutput(prev => prev + message + '\n');
+        }
       };
 
       ws.onerror = (error) => {
         console.error('WebSocket error:', error);
+        setExecutionOutput(prev => prev + 'Error: WebSocket connection failed\n');
         setIsExecuting(false);
-        notifications.show({
-          title: 'Error',
-          message: 'Failed to connect to execution log stream',
-          color: 'red',
-        });
       };
+
+      ws.onclose = () => {
+        console.log('WebSocket closed');
+        setIsExecuting(false);
+      };
+
+      setShowExecutionModal(true);
     } catch (error) {
-      console.error('Failed to execute script:', error);
+      console.error('Error executing script:', error);
+      notifications.show({
+        title: 'Error',
+        message: 'Failed to execute script',
+        color: 'red',
+      });
       setIsExecuting(false);
-      handleApiError(error, 'executing script');
     }
   };
 
   const closeExecutionModal = () => {
     console.log('Closing execution modal, isExecuting:', isExecuting);
     setShowExecutionModal(false);
-    setExecutionOutput([]);
+    setExecutionOutput('');
   };
 
   const handleViewLogs = async (execution: Execution) => {
@@ -926,7 +939,33 @@ export function ScriptDetailPage() {
             >
               <Stack>
                 <Group justify="space-between" mb="md">
-                  <Title order={3}>Script Execution</Title>
+                  <Group>
+                    <Title order={3}>Script Execution</Title>
+                    <Badge
+                      color={
+                        executionStatus === ExecutionStatus.SUCCESS
+                          ? 'green'
+                          : executionStatus === ExecutionStatus.FAILURE
+                          ? 'red'
+                          : executionStatus === ExecutionStatus.RUNNING
+                          ? 'blue'
+                          : 'gray'
+                      }
+                      leftSection={
+                        executionStatus === ExecutionStatus.SUCCESS ? (
+                          <IconCheck size={14} />
+                        ) : executionStatus === ExecutionStatus.FAILURE ? (
+                          <IconX size={14} />
+                        ) : executionStatus === ExecutionStatus.RUNNING ? (
+                          <IconLoader2 size={14} className="rotating" />
+                        ) : (
+                          <IconClock size={14} />
+                        )
+                      }
+                    >
+                      {executionStatus}
+                    </Badge>
+                  </Group>
                   <ActionIcon 
                     onClick={closeExecutionModal} 
                     disabled={isExecuting}
@@ -948,8 +987,8 @@ export function ScriptDetailPage() {
                     fontSize: '13px',
                   }}
                 >
-                  {executionOutput.length > 0 ? (
-                    executionOutput.map((line, index) => (
+                  {executionOutput ? (
+                    executionOutput.split('\n').map((line, index) => (
                       <Text
                         key={index}
                         style={{

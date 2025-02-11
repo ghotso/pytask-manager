@@ -75,16 +75,23 @@ export function ScriptExecution() {
       wsRef.current.onmessage = (event) => {
         const message = event.data;
         
-        // Don't add error messages about execution ID to output
+        // Handle execution ID errors silently with retries
         if (message.includes('No execution ID provided') || message.includes('Execution not found')) {
-          if (retryCount < 5) {
-            console.log(`Retrying WebSocket connection (attempt ${retryCount + 1})...`);
-            wsRef.current?.close();
-            setTimeout(() => connectWebSocket(retryCount + 1), 1000);
+          console.log(`Execution not ready yet (attempt ${retryCount + 1})`);
+          wsRef.current?.close();
+          if (retryCount < 10) {  // Increase max retries
+            setTimeout(() => connectWebSocket(retryCount + 1), 500);  // Shorter retry interval
           } else {
-            setOutput(prev => prev + 'Error: Failed to connect to execution stream\n');
+            setOutput(prev => prev + 'Error: Failed to connect to execution stream after multiple attempts\n');
+            setIsExecuting(false);
           }
           return;
+        }
+        
+        // Handle normal messages
+        if (message.startsWith('Connected to execution stream')) {
+          console.log('Successfully connected to execution stream');
+          return;  // Don't show the connection message to the user
         }
         
         setOutput(prev => prev + message + '\n');
@@ -95,6 +102,7 @@ export function ScriptExecution() {
           
           if (status === ExecutionStatus.SUCCESS || status === ExecutionStatus.FAILURE) {
             mutate();  // Refresh script data
+            setIsExecuting(false);
             cleanupWebSocket();
           }
         }
@@ -102,11 +110,12 @@ export function ScriptExecution() {
       
       wsRef.current.onerror = (error) => {
         console.error('WebSocket error:', error);
-        if (retryCount < 5) {
+        if (retryCount < 10) {  // Increase max retries
           console.log(`Retrying WebSocket connection (attempt ${retryCount + 1})...`);
-          setTimeout(() => connectWebSocket(retryCount + 1), 1000);
+          setTimeout(() => connectWebSocket(retryCount + 1), 500);  // Shorter retry interval
         } else {
-          setOutput(prev => prev + 'Error: WebSocket connection failed after 5 attempts\n');
+          setOutput(prev => prev + 'Error: WebSocket connection failed after multiple attempts\n');
+          setIsExecuting(false);
         }
       };
       
@@ -115,8 +124,8 @@ export function ScriptExecution() {
       };
     };
     
-    // Add a longer initial delay to allow the execution to be created
-    setTimeout(() => connectWebSocket(), 1000);
+    // Add initial delay to allow execution record to be created
+    setTimeout(() => connectWebSocket(), 2000);  // Increase initial delay
   };
 
   const handleExecute = async () => {
