@@ -303,17 +303,34 @@ export function ScriptDetailPage() {
     setShowExecutionModal(true);
 
     try {
+      // Execute script and get initial response
       const response = await scriptsApi.execute(scriptId);
       console.log('Execution started:', response);
 
+      // If no execution ID, try to get it from the executions list
       if (!response.execution_id) {
-        throw new Error('No execution ID received from server');
+        console.log('No execution ID in response, checking executions list...');
+        await new Promise(resolve => setTimeout(resolve, 500)); // Wait for backend to create execution
+        await loadExecutions(); // Refresh executions list
+        
+        // Get the most recent execution
+        const latestExecution = executions[0];
+        if (latestExecution && latestExecution.status === ExecutionStatus.RUNNING) {
+          response.execution_id = latestExecution.id;
+          console.log('Found execution ID from list:', response.execution_id);
+        }
+      }
+
+      if (!response.execution_id) {
+        throw new Error('Could not get execution ID');
       }
 
       const ws = new WebSocket(`${WS_BASE_URL}/api/executions/${response.execution_id}/output`);
+      let isConnected = false;
 
       ws.onopen = () => {
         console.log('WebSocket connected');
+        isConnected = true;
         setExecutionOutput(prev => prev + 'Connected to execution stream...\n');
       };
 
@@ -328,9 +345,7 @@ export function ScriptDetailPage() {
           if (status === ExecutionStatus.SUCCESS || status === ExecutionStatus.FAILURE) {
             setIsExecuting(false);
             ws.close();
-            
-            // Refresh executions list
-            loadExecutions();
+            loadExecutions(); // Refresh executions list
           }
         } else {
           setExecutionOutput(prev => prev + message + '\n');
@@ -339,14 +354,25 @@ export function ScriptDetailPage() {
 
       ws.onerror = (error) => {
         console.error('WebSocket error:', error);
-        setExecutionOutput(prev => prev + 'Error: WebSocket connection failed\n');
-        setIsExecuting(false);
-        setExecutionStatus(ExecutionStatus.FAILURE);
+        if (!isConnected) {
+          setExecutionOutput(prev => 
+            prev + 'Error: Could not connect to execution stream. The script may still be running.\n'
+          );
+        }
       };
 
       ws.onclose = () => {
         console.log('WebSocket closed');
-        setIsExecuting(false);
+        if (!isConnected) {
+          // If we never connected, check the execution status directly
+          loadExecutions().then(() => {
+            const execution = executions.find(e => e.id === response.execution_id);
+            if (execution) {
+              setExecutionStatus(execution.status);
+              setIsExecuting(false);
+            }
+          });
+        }
       };
 
     } catch (error) {
@@ -354,11 +380,15 @@ export function ScriptDetailPage() {
       setExecutionStatus(ExecutionStatus.FAILURE);
       setIsExecuting(false);
       setExecutionOutput(prev => prev + `Error executing script: ${error}\n`);
-      notifications.show({
-        title: 'Error',
-        message: 'Failed to execute script',
-        color: 'red',
-      });
+      
+      // Only show notification for non-connection errors
+      if (error instanceof Error && !error.message.includes('execution ID')) {
+        notifications.show({
+          title: 'Error',
+          message: 'Failed to execute script',
+          color: 'red',
+        });
+      }
     }
   };
 
