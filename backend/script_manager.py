@@ -281,6 +281,11 @@ class ScriptManager:
     async def has_uninstalled_dependencies(self) -> bool:
         """Check if script has any uninstalled dependencies."""
         try:
+            # First check if virtual environment exists
+            if not self.venv_dir.exists() or not self.python_path.exists():
+                logger.warning(f"Virtual environment not found for script {self.script_id}")
+                return True
+                
             async with get_session_context() as session:
                 # Get a fresh copy of the script with dependencies
                 result = await session.execute(
@@ -297,19 +302,32 @@ class ScriptManager:
                 # Get currently installed versions
                 installed_versions = await self.get_installed_versions()
                 
+                # Convert installed package names to lowercase for case-insensitive comparison
+                installed_packages = {name.lower(): version for name, version in installed_versions.items()}
+                
                 # Check each dependency
                 for dep in script.dependencies:
-                    if dep.package_name not in installed_versions:
+                    package_name_lower = dep.package_name.lower()
+                    if package_name_lower not in installed_packages:
+                        logger.warning(f"Package {dep.package_name} not found in installed packages")
                         return True
                         
-                    installed_version = installed_versions[dep.package_name]
+                    installed_version = installed_packages[package_name_lower]
                     if not installed_version:
+                        logger.warning(f"Package {dep.package_name} has no version installed")
                         return True
                         
+                    # Find the actual package name with correct case
+                    actual_name = next(
+                        name for name in installed_versions.keys()
+                        if name.lower() == package_name_lower
+                    )
+                    
                     # Update installed version in database if changed
                     if installed_version != dep.installed_version:
                         dep.installed_version = installed_version
                         await session.commit()
+                        logger.info(f"Updated installed version for {actual_name} to {installed_version}")
                 
                 return False
                 
@@ -319,161 +337,73 @@ class ScriptManager:
 
     async def execute(self, execution_id: int) -> AsyncGenerator[str, None]:
         """Execute the script and stream its output."""
-        logger.info(f"Executing script {self.script_id}")
-        
-        # Check for uninstalled dependencies first
-        if await self.has_uninstalled_dependencies():
-            yield "Error: Cannot execute script with uninstalled dependencies\n"
-            raise RuntimeError("Cannot execute script with uninstalled dependencies")
-            
-        # Create output file path
-        output_file_path = self.script_dir / f"output_{execution_id}.txt"
-        script_path = self.script_path
-        process = None
-        stdout_task = None
-        stderr_task = None
-        output_file = None
-        binary_file = None
-        
         try:
-            # Ensure script exists
-            if not script_path.exists():
-                raise FileNotFoundError(f"Script file not found: {script_path}")
+            # First check if virtual environment exists and create if needed
+            if not self.venv_dir.exists() or not self.python_path.exists():
+                logger.info(f"Creating virtual environment for script {self.script_id}")
+                async with get_session_context() as session:
+                    result = await session.execute(
+                        select(Script)
+                        .options(selectinload(Script.dependencies))
+                        .where(Script.id == self.script_id)
+                    )
+                    script = result.scalar_one_or_none()
+                    if script:
+                        await self.setup_environment(script.content, script.dependencies)
+                    else:
+                        raise RuntimeError(f"Script {self.script_id} not found")
             
-            # Create output file immediately to ensure it exists for WebSocket
-            output_file_path.touch()
+            # Check dependencies after ensuring venv exists
+            if await self.has_uninstalled_dependencies():
+                logger.error(f"Script {self.script_id} has uninstalled dependencies")
+                raise RuntimeError("Cannot execute script with uninstalled dependencies")
             
-            # Open output file in binary mode first for better buffering
-            binary_file = open(str(output_file_path), "wb", buffering=0)  # Unbuffered binary stream
-            output_file = io.TextIOWrapper(
-                binary_file,
-                encoding='utf-8',
-                write_through=True,  # Ensure writes go directly to the binary stream
-                line_buffering=True  # Enable line buffering
+            # Set up output file
+            output_file = self.script_dir / f"output_{execution_id}.txt"
+            if output_file.exists():
+                output_file.unlink()
+            
+            # Create process with output redirection
+            process = await asyncio.create_subprocess_exec(
+                str(self.python_path),
+                str(self.script_path),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(self.script_dir)
             )
             
-            # Write initial message to ensure file has content
-            output_file.write("Starting script execution...\n")
-            output_file.flush()
+            if process.stdout is None or process.stderr is None:
+                raise RuntimeError("Failed to create process streams")
             
-            # Create subprocess with timeout handling
-            try:
-                process = await asyncio.create_subprocess_exec(
-                    str(self.python_path),
-                    "-u",  # Unbuffered output
-                    str(script_path),
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    env=os.environ.copy(),
-                    limit=8192  # Limit subprocess pipe buffer size
+            # Open output file
+            with open(output_file, 'w', encoding='utf-8', buffering=1) as f:
+                # Process stdout and stderr concurrently
+                stdout_task = asyncio.create_task(
+                    _stream_handler(process.stdout, f, False)
+                )
+                stderr_task = asyncio.create_task(
+                    _stream_handler(process.stderr, f, True)
                 )
                 
-                if process.stdout is None or process.stderr is None:
-                    raise RuntimeError("Failed to create subprocess pipes")
+                # Wait for both streams to complete
+                stdout_lines = await stdout_task
+                stderr_lines = await stderr_task
                 
-                # Set up stream tasks with timeout
-                try:
-                    stdout_task = asyncio.create_task(
-                        _stream_handler(process.stdout, output_file, False)
-                    )
-                    stderr_task = asyncio.create_task(
-                        _stream_handler(process.stderr, output_file, True)
-                    )
-                    
-                    # Wait for process with timeout
-                    try:
-                        await asyncio.wait_for(process.wait(), timeout=settings.max_execution_time)
-                    except asyncio.TimeoutError:
-                        logger.error("Script execution timed out")
-                        yield "Error: Script execution timed out after {settings.max_execution_time} seconds\n"
-                        raise RuntimeError(f"Script timed out after {settings.max_execution_time} seconds")
-                    
-                    # Wait for stream tasks to complete with timeout
-                    try:
-                        stdout_result, stderr_result = await asyncio.gather(
-                            stdout_task,
-                            stderr_task,
-                            return_exceptions=True
-                        )
-                        
-                        # Check for task exceptions
-                        for result in [stdout_result, stderr_result]:
-                            if isinstance(result, Exception):
-                                logger.error(f"Stream task failed: {result}")
-                                raise result
-                        
-                    except Exception as e:
-                        logger.error(f"Error in stream tasks: {e}")
-                        raise
-                    
-                    # Check process return code
-                    if process.returncode != 0:
-                        error_msg = f"Error: Script exited with return code {process.returncode}\n"
-                        output_file.write(error_msg)
-                        output_file.flush()
-                        yield error_msg
-                    
-                    # Read and yield output
-                    try:
-                        with open(str(output_file_path), 'r') as f:
-                            content = f.read()
-                            if content:
-                                yield content
-                    except Exception as e:
-                        logger.error(f"Error reading output file: {e}")
-                        raise
-                    
-                except Exception as e:
-                    logger.error(f"Error during execution: {e}")
-                    raise
+                # Wait for process to complete
+                return_code = await process.wait()
                 
-            except Exception as e:
-                logger.error(f"Error in execute: {e}")
-                raise
-            
+                # Yield all lines
+                for line in stdout_lines + stderr_lines:
+                    yield line
+                
+                # Yield return code if non-zero
+                if return_code != 0:
+                    yield f"Error: Script exited with return code {return_code}"
+                
         except Exception as e:
-            logger.error(f"Error in execute: {e}")
+            logger.error(f"Error executing script: {e}")
+            yield f"Error: {str(e)}"
             raise
-        
-        finally:
-            # Clean up resources in reverse order of creation
-            if stdout_task and not stdout_task.done():
-                stdout_task.cancel()
-            if stderr_task and not stderr_task.done():
-                stderr_task.cancel()
-            
-            # Close file handles
-            if output_file:
-                try:
-                    output_file.flush()
-                    output_file.close()
-                except:
-                    pass
-            if binary_file:
-                try:
-                    binary_file.close()
-                except:
-                    pass
-            
-            # Terminate process if still running
-            if process and process.returncode is None:
-                try:
-                    process.terminate()
-                    try:
-                        # Wait for process to terminate
-                        await asyncio.wait_for(process.wait(), timeout=5.0)
-                    except asyncio.TimeoutError:
-                        # Force kill if terminate doesn't work
-                        process.kill()
-                        await process.wait()
-                except Exception as e:
-                    logger.error(f"Error terminating process: {e}")
-                    # Try force kill as last resort
-                    try:
-                        process.kill()
-                        await process.wait()
-                    except:
-                        pass
 
     def cleanup(self, remove_environment: bool = False) -> None:
         """Clean up script environment.
