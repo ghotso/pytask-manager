@@ -103,105 +103,33 @@ class ScriptManager:
         return self.venv_dir / "bin" / "python"
     
     async def setup_environment(self, script_content: str, dependencies: List[Dependency]) -> None:
-        """Set up the script environment with virtual environment and dependencies."""
+        """Set up the script environment."""
         logger.info(f"Setting up environment for script {self.script_id}")
         
         try:
             # Create script directory if it doesn't exist
             self.script_dir.mkdir(parents=True, exist_ok=True)
-            try:
-                os.chmod(str(self.script_dir), 0o777)  # Ensure directory is writable
-            except Exception as e:
-                logger.warning(f"Failed to set directory permissions: {e}")
             
             # Write script content
-            logger.debug(f"Writing script content to {self.script_path}")
-            self.script_path.write_text(script_content)
-            try:
-                os.chmod(str(self.script_path), 0o666)  # Make script readable/writable
-            except Exception as e:
-                logger.warning(f"Failed to set script file permissions: {e}")
+            script_path = self.script_dir / "script.py"
+            script_path.write_text(script_content)
             
-            # Create virtual environment only if it doesn't exist
-            if not self.venv_dir.exists() or not self.python_path.exists():
-                logger.info(f"Creating virtual environment in {self.venv_dir}")
-                try:
-                    builder = venv.EnvBuilder(
-                        system_site_packages=False,
-                        clear=True,
-                        with_pip=True,
-                        upgrade_deps=True,
-                        symlinks=False  # More compatible across systems
-                    )
-                    builder.create(self.venv_dir)
-                    
-                    # Make Python executable actually executable on Unix
-                    if sys.platform != "win32":
-                        try:
-                            self.python_path.chmod(0o755)
-                        except Exception as e:
-                            logger.warning(f"Failed to set Python executable permissions: {e}")
-                    
-                    # Verify Python executable exists
-                    if not self.python_path.exists():
-                        raise RuntimeError(f"Failed to create Python executable at {self.python_path}")
-                    
-                    # Upgrade pip to latest version
-                    await self._run_pip("install", "--upgrade", "pip", "setuptools", "wheel")
-                    
-                except Exception as e:
-                    logger.error(f"Failed to create virtual environment: {e}")
-                    raise RuntimeError(f"Failed to create virtual environment: {e}")
+            # Write requirements.txt (but don't install)
+            requirements = []
+            for dep in dependencies:
+                if not dep.version_spec or dep.version_spec in ['*', '']:
+                    requirements.append(dep.package_name)
+                elif dep.version_spec.startswith('=='):
+                    requirements.append(f"{dep.package_name}{dep.version_spec}")
+                elif dep.version_spec.startswith(('>=', '<=', '>', '<', '~=')):
+                    requirements.append(f"{dep.package_name}{dep.version_spec}")
+                else:
+                    requirements.append(dep.package_name)
             
-            # Install or update dependencies if any
-            if dependencies:
-                logger.info("Installing/updating dependencies")
-                # Write requirements.txt with proper version specs
-                requirements = []
-                for dep in dependencies:
-                    if not dep.version_spec or dep.version_spec in ['*', '']:
-                        # For wildcard or empty version spec, just use the package name
-                        # without any version specification to get the latest version
-                        requirements.append(dep.package_name.strip())
-                    elif dep.version_spec.startswith('=='):
-                        # Exact version requirement
-                        requirements.append(f"{dep.package_name.strip()}{dep.version_spec}")
-                    elif dep.version_spec.startswith(('>=', '<=', '>', '<', '~=')):
-                        # Standard version comparisons
-                        requirements.append(f"{dep.package_name.strip()}{dep.version_spec}")
-                    else:
-                        # For any other format, treat it as an exact version if it's a valid version string
-                        version = dep.version_spec.strip()
-                        if version and not version.startswith(('*', '=')):
-                            requirements.append(f"{dep.package_name.strip()}=={version}")
-                        else:
-                            # Default to latest version if version spec is invalid
-                            requirements.append(dep.package_name.strip())
-                
-                logger.debug(f"Writing requirements: {requirements}")
-                self.requirements_path.write_text("\n".join(requirements))
-                
-                try:
-                    # Install/update requirements
-                    await self._run_pip(
-                        "install",
-                        "-r", str(self.requirements_path),
-                        "--no-cache-dir",  # Avoid caching issues
-                        "--upgrade"  # Ensure packages are updated if needed
-                    )
-                    
-                    # Update installed versions
-                    installed_versions = await self.get_installed_versions()
-                    for dep in dependencies:
-                        if dep.package_name in installed_versions:
-                            dep.installed_version = installed_versions[dep.package_name]
-                            
-                except Exception as e:
-                    logger.error(f"Failed to install dependencies: {e}")
-                    raise RuntimeError(f"Failed to install dependencies: {e}")
-        
+            self.requirements_path.write_text("\n".join(requirements))
+            
         except Exception as e:
-            logger.error(f"Failed to set up environment: {e}")
+            logger.error(f"Error setting up environment: {e}")
             raise
 
     async def _run_pip(self, *args: str) -> None:
