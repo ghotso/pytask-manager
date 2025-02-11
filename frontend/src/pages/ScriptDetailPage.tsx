@@ -313,7 +313,7 @@ export function ScriptDetailPage() {
         throw new Error('No execution ID received from server');
       }
 
-      const ws = new WebSocket(`${WS_BASE_URL}/api/executions/${executionId}/output`);
+      const ws = new WebSocket(`${WS_BASE_URL}/api/scripts/${scriptId}/ws?execution_id=${executionId}`);
       let isConnected = false;
 
       ws.onopen = () => {
