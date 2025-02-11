@@ -307,33 +307,10 @@ export function ScriptDetailPage() {
       const response = await scriptsApi.execute(scriptId);
       console.log('Execution started:', response);
 
-      let executionId = response.execution_id;
-      let retryCount = 0;
-      const maxRetries = 3;
-
-      // If no execution ID, retry getting it from the executions list
-      while (!executionId && retryCount < maxRetries) {
-        console.log(`Retry ${retryCount + 1}: Getting execution ID from executions list...`);
-        await new Promise(resolve => setTimeout(resolve, 500)); // Wait between retries
-        await loadExecutions();
-        
-        // Get the most recent execution for this script
-        const latestExecution = executions.find(
-          e => e.script_id === scriptId && 
-          (e.status === ExecutionStatus.PENDING || e.status === ExecutionStatus.RUNNING)
-        );
-        
-        if (latestExecution) {
-          executionId = latestExecution.id;
-          console.log('Found execution ID:', executionId);
-          break;
-        }
-        
-        retryCount++;
-      }
-
+      // The API returns the execution record directly
+      const executionId = response.execution_id;
       if (!executionId) {
-        throw new Error('Could not get execution ID after retries');
+        throw new Error('No execution ID received from server');
       }
 
       const ws = new WebSocket(`${WS_BASE_URL}/api/executions/${executionId}/output`);
