@@ -337,54 +337,41 @@ class ScriptManager:
 
     async def execute(self, execution_id: int) -> AsyncGenerator[str, None]:
         """Execute the script and stream its output."""
-        try:
-            # First check if virtual environment exists and create if needed
-            if not self.venv_dir.exists() or not self.python_path.exists():
-                logger.info(f"Creating virtual environment for script {self.script_id}")
-                async with get_session_context() as session:
-                    result = await session.execute(
-                        select(Script)
-                        .options(selectinload(Script.dependencies))
-                        .where(Script.id == self.script_id)
-                    )
-                    script = result.scalar_one_or_none()
-                    if script:
-                        await self.setup_environment(script.content, script.dependencies)
-                    else:
-                        raise RuntimeError(f"Script {self.script_id} not found")
-            
-            # Check dependencies after ensuring venv exists
-            if await self.has_uninstalled_dependencies():
-                logger.error(f"Script {self.script_id} has uninstalled dependencies")
-                raise RuntimeError("Cannot execute script with uninstalled dependencies")
-            
-            # Set up output file
-            output_file = self.script_dir / f"output_{execution_id}.txt"
-            if output_file.exists():
-                output_file.unlink()
-            
-            # Create process with output redirection
-            process = await asyncio.create_subprocess_exec(
-                str(self.python_path),
-                str(self.script_path),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=str(self.script_dir)
+        logger.info(f"Executing script {self.script_id}")
+        
+        # Check for uninstalled dependencies first
+        if await self.has_uninstalled_dependencies():
+            logger.error(f"Script {self.script_id} has uninstalled dependencies")
+            raise RuntimeError("Cannot execute script with uninstalled dependencies")
+        
+        # Set up output file
+        output_file = self.script_dir / f"output_{execution_id}.txt"
+        if output_file.exists():
+            output_file.unlink()
+        
+        # Create process with output redirection
+        process = await asyncio.create_subprocess_exec(
+            str(self.python_path),
+            str(self.script_path),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=str(self.script_dir)
+        )
+        
+        if process.stdout is None or process.stderr is None:
+            raise RuntimeError("Failed to create process streams")
+        
+        # Open output file
+        with open(output_file, 'w', encoding='utf-8', buffering=1) as f:
+            # Process stdout and stderr concurrently
+            stdout_task = asyncio.create_task(
+                _stream_handler(process.stdout, f, False)
+            )
+            stderr_task = asyncio.create_task(
+                _stream_handler(process.stderr, f, True)
             )
             
-            if process.stdout is None or process.stderr is None:
-                raise RuntimeError("Failed to create process streams")
-            
-            # Open output file
-            with open(output_file, 'w', encoding='utf-8', buffering=1) as f:
-                # Process stdout and stderr concurrently
-                stdout_task = asyncio.create_task(
-                    _stream_handler(process.stdout, f, False)
-                )
-                stderr_task = asyncio.create_task(
-                    _stream_handler(process.stderr, f, True)
-                )
-                
+            try:
                 # Wait for both streams to complete
                 stdout_lines = await stdout_task
                 stderr_lines = await stderr_task
@@ -399,11 +386,11 @@ class ScriptManager:
                 # Yield return code if non-zero
                 if return_code != 0:
                     yield f"Error: Script exited with return code {return_code}"
-                
-        except Exception as e:
-            logger.error(f"Error executing script: {e}")
-            yield f"Error: {str(e)}"
-            raise
+                    
+            except Exception as e:
+                logger.error(f"Error during execution: {e}")
+                yield f"Error: {str(e)}"
+                raise
 
     def cleanup(self, remove_environment: bool = False) -> None:
         """Clean up script environment.

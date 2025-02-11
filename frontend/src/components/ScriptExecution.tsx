@@ -195,6 +195,11 @@ export function ScriptExecution() {
     }
   };
 
+  // Function to check if there are any uninstalled dependencies
+  const hasUninstalledDependencies = (script: Script): boolean => {
+    return script.dependencies.some(dep => !dep.installed_version);
+  };
+
   if (isLoading || !script) {
     return null;
   }
@@ -217,19 +222,23 @@ export function ScriptExecution() {
           </Button>
           <Button
             onClick={handleExecute}
-            disabled={isExecuting}
-            leftSection={<IconPlayerPlay size={16} />}
-            loading={isExecuting && !isConnected}
+            disabled={isExecuting || hasUninstalledDependencies(script)}
+            leftSection={<IconPlayerPlay size={14} />}
+            color={hasUninstalledDependencies(script) ? 'red' : 'blue'}
+            title={hasUninstalledDependencies(script) ? 'Please install all dependencies before running the script' : undefined}
           >
-            {isExecuting 
-              ? isConnected 
-                ? 'Executing...' 
-                : 'Connecting...'
-              : 'Execute'
-            }
+            {isExecuting ? 'Running...' : 'Run Script'}
           </Button>
         </Group>
       </Group>
+
+      {hasUninstalledDependencies(script) && (
+        <Paper p="md" bg="red.1" mb="md">
+          <Text c="red" fw={500}>
+            This script has uninstalled dependencies. Please install all dependencies before running the script.
+          </Text>
+        </Paper>
+      )}
 
       <Paper
         ref={outputRef}

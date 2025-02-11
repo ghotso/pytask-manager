@@ -627,32 +627,25 @@ async def websocket_endpoint(
     script_id: int,
     session: AsyncSession = Depends(get_session),
 ):
-    """WebSocket endpoint for script execution output."""
-    logger.info(f"WebSocket connection opened for script {script_id}")
-    sent_messages = set()
+    """WebSocket endpoint for script execution output streaming."""
+    await websocket.accept()
     
     try:
-        await websocket.accept()
-        logger.info("WebSocket connection accepted")
-        
-        # Get the most recent running execution
+        # Get the execution ID from the query parameters
+        execution_id = int(websocket.query_params.get("execution_id", 0))
+        if not execution_id:
+            await websocket.send_text("Error: No execution ID provided")
+            return
+            
+        # Get execution details
         result = await session.execute(
-            select(Execution)
-            .where(
-                Execution.script_id == script_id,
-                Execution.status == ExecutionStatus.RUNNING
-            )
-            .order_by(Execution.started_at.desc())
+            select(Execution).where(Execution.id == execution_id)
         )
         execution = result.scalar_one_or_none()
         
         if not execution:
-            logger.warning(f"No running execution found for script {script_id}")
-            await websocket.send_text("No running execution found")
-            await websocket.close(code=1000, reason="No running execution found")
+            await websocket.send_text(f"Error: Execution {execution_id} not found")
             return
-            
-        logger.info(f"Found running execution {execution.id}")
         
         # Create script manager to read output
         manager = ScriptManager(script_id, base_dir=str(settings.scripts_dir))
@@ -661,13 +654,14 @@ async def websocket_endpoint(
         # Send initial connection message
         await websocket.send_text("Connected to execution stream...")
         
-        # Wait for output file to be created (max 30 seconds)
+        # Wait for output file to be created (max 60 seconds)
         start_time = time.monotonic()
         should_break = False
+        last_status = None
         
         while not output_file.exists() and not should_break:
-            if time.monotonic() - start_time > 30:
-                logger.warning("Output file not created within timeout")
+            if time.monotonic() - start_time > 60:
+                logger.warning(f"Output file not created within timeout for execution {execution_id}")
                 await websocket.send_text("Error: Output file not created within timeout")
                 return
             
@@ -680,64 +674,71 @@ async def websocket_endpoint(
                     current_execution = result.scalar_one_or_none()
                     
                     if not current_execution:
-                        logger.error(f"Execution {execution.id} not found")
+                        logger.error(f"Execution {execution.id} not found during status check")
                         continue
                     
-                    # Check if execution failed before output file was created
-                    if current_execution.status == ExecutionStatus.FAILURE:
-                        logger.warning(f"Execution {execution.id} failed before output file was created")
+                    # Only send status update if it changed
+                    if current_execution.status != last_status:
                         await websocket.send_text(f"STATUS: {current_execution.status}")
+                        last_status = current_execution.status
+                    
+                    # Check if execution completed before output file was created
+                    if current_execution.status in [ExecutionStatus.SUCCESS, ExecutionStatus.FAILURE]:
                         if current_execution.error_message:
                             await websocket.send_text(f"Error: {current_execution.error_message}")
+                        
+                        # For successful executions, wait a bit longer for the file
+                        if current_execution.status == ExecutionStatus.SUCCESS:
+                            if time.monotonic() - start_time <= 5:  # Give extra 5 seconds for file creation
+                                await asyncio.sleep(0.5)
+                                continue
+                            else:
+                                logger.warning(f"Execution {execution_id} succeeded but output file was not created")
+                                await websocket.send_text("Warning: Execution completed but output file was not created")
+                                return
+                        
                         should_break = True
                         continue
             
             except Exception as e:
                 logger.error(f"Error checking execution status: {e}")
+                await asyncio.sleep(0.5)
                 continue
             
             await asyncio.sleep(0.5)
         
         if should_break:
             return
-        
-        # Read and stream output
+            
+        # Start reading output
         try:
             async for line in manager.read_output(execution.id):
-                if line not in sent_messages:
-                    await websocket.send_text(line)
-                    sent_messages.add(line)
+                await websocket.send_text(line.rstrip())
+                
+                # Check execution status periodically
+                async with get_session_context() as check_session:
+                    result = await check_session.execute(
+                        select(Execution).where(Execution.id == execution.id)
+                    )
+                    current_execution = result.scalar_one_or_none()
                     
-                    # Check execution status periodically
-                    if "STATUS:" in line:
-                        try:
-                            async with get_session_context() as check_session:
-                                result = await check_session.execute(
-                                    select(Execution).where(Execution.id == execution.id)
-                                )
-                                current_execution = result.scalar_one_or_none()
-                                
-                                if current_execution and current_execution.status == ExecutionStatus.FAILURE:
-                                    if current_execution.error_message:
-                                        error_msg = f"Error: {current_execution.error_message}"
-                                        if error_msg not in sent_messages:
-                                            await websocket.send_text(error_msg)
-                                            sent_messages.add(error_msg)
-                        except Exception as e:
-                            logger.error(f"Error checking execution status: {e}")
-                            continue
+                    if current_execution and current_execution.status != last_status:
+                        await websocket.send_text(f"STATUS: {current_execution.status}")
+                        last_status = current_execution.status
+                        
+                        if current_execution.status == ExecutionStatus.FAILURE and current_execution.error_message:
+                            await websocket.send_text(f"Error: {current_execution.error_message}")
                     
         except Exception as e:
             logger.error(f"Error reading output: {e}")
             await websocket.send_text(f"Error reading output: {str(e)}")
-    
+            
     except WebSocketDisconnect:
-        logger.info("WebSocket connection closed by client")
+        logger.info("WebSocket client disconnected")
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
         try:
             await websocket.send_text(f"Error: {str(e)}")
-            await websocket.close(code=1000)
         except Exception:
             pass
 
