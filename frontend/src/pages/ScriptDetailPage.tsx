@@ -307,61 +307,102 @@ export function ScriptDetailPage() {
       const response = await scriptsApi.execute(scriptId);
       console.log('Execution started:', response);
 
-      // The API returns the execution record directly
-      const executionId = response.execution_id;
-      if (!executionId) {
+      if (!response || !response.execution_id) {
         throw new Error('No execution ID received from server');
       }
 
-      const ws = new WebSocket(`${WS_BASE_URL}/api/scripts/${scriptId}/ws?execution_id=${executionId}`);
-      let isConnected = false;
+      const executionId = response.execution_id;
+      let retryCount = 0;
+      const maxRetries = 3;
+      let ws: WebSocket | null = null;
 
-      ws.onopen = () => {
-        console.log('WebSocket connected');
-        isConnected = true;
-        setExecutionOutput(prev => prev + 'Connected to execution stream...\n');
-      };
-
-      ws.onmessage = (event) => {
-        const message = event.data;
-        console.log('WebSocket message:', message);
-
-        if (message.startsWith('STATUS:')) {
-          const status = message.split(':')[1].trim().toUpperCase();
-          setExecutionStatus(status as ExecutionStatus);
-          
-          if (status === ExecutionStatus.SUCCESS || status === ExecutionStatus.FAILURE) {
-            setIsExecuting(false);
-            ws.close();
-            loadExecutions(); // Refresh executions list
-          }
-        } else {
-          setExecutionOutput(prev => prev + message + '\n');
+      const connectWebSocket = () => {
+        if (ws) {
+          ws.close();
         }
-      };
 
-      ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        if (!isConnected) {
-          setExecutionOutput(prev => 
-            prev + 'Error: Could not connect to execution stream. The script may still be running.\n'
-          );
-        }
-      };
+        ws = new WebSocket(`${WS_BASE_URL}/api/scripts/${scriptId}/ws?execution_id=${executionId}`);
+        let isConnected = false;
 
-      ws.onclose = () => {
-        console.log('WebSocket closed');
-        if (!isConnected) {
-          // If we never connected, check the execution status directly
-          loadExecutions().then(() => {
-            const execution = executions.find(e => e.id === executionId);
-            if (execution) {
-              setExecutionStatus(execution.status);
+        ws.onopen = () => {
+          console.log('WebSocket connected');
+          isConnected = true;
+          setExecutionOutput(prev => prev + 'Connected to execution stream...\n');
+        };
+
+        ws.onmessage = (event) => {
+          const message = event.data;
+          console.log('WebSocket message:', message);
+
+          if (message.startsWith('STATUS:')) {
+            const status = message.split(':')[1].trim().toUpperCase();
+            setExecutionStatus(status as ExecutionStatus);
+            
+            if (status === ExecutionStatus.SUCCESS || status === ExecutionStatus.FAILURE) {
               setIsExecuting(false);
+              ws?.close();
+              loadExecutions(); // Refresh executions list
             }
-          });
-        }
+          } else {
+            setExecutionOutput(prev => prev + message + '\n');
+          }
+        };
+
+        ws.onerror = async (error) => {
+          console.error('WebSocket error:', error);
+          if (!isConnected && retryCount < maxRetries) {
+            console.log(`Retrying WebSocket connection (${retryCount + 1}/${maxRetries})...`);
+            retryCount++;
+            // Wait a bit before retrying
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            connectWebSocket();
+          } else if (!isConnected) {
+            // If we still can't connect after retries, check execution status directly
+            try {
+              const executions = await scriptsApi.listExecutions(scriptId);
+              const latestExecution = executions.find(e => e.id === executionId);
+              if (latestExecution) {
+                setExecutionStatus(latestExecution.status);
+                if (latestExecution.status === ExecutionStatus.SUCCESS) {
+                  setExecutionOutput(prev => 
+                    prev + 'Script executed successfully. Check execution history for logs.\n'
+                  );
+                }
+                setIsExecuting(false);
+              }
+            } catch (err) {
+              console.error('Error checking execution status:', err);
+            }
+          }
+        };
+
+        ws.onclose = () => {
+          console.log('WebSocket closed');
+          if (!isConnected && retryCount < maxRetries) {
+            console.log(`Retrying WebSocket connection (${retryCount + 1}/${maxRetries})...`);
+            retryCount++;
+            // Wait a bit before retrying
+            setTimeout(connectWebSocket, 1000);
+          } else if (!isConnected) {
+            // Final fallback: check execution status
+            loadExecutions().then(() => {
+              const execution = executions.find(e => e.id === executionId);
+              if (execution) {
+                setExecutionStatus(execution.status);
+                if (execution.status === ExecutionStatus.SUCCESS) {
+                  setExecutionOutput(prev => 
+                    prev + 'Script executed successfully. Check execution history for logs.\n'
+                  );
+                }
+                setIsExecuting(false);
+              }
+            });
+          }
+        };
       };
+
+      // Initial WebSocket connection
+      connectWebSocket();
 
     } catch (error) {
       console.error('Error executing script:', error);
