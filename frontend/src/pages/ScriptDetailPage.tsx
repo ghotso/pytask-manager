@@ -335,28 +335,30 @@ export function ScriptDetailPage() {
           ws.close();
         }
 
+        const wsUrl = `${WS_BASE_URL}/api/scripts/${scriptId}/ws?execution_id=${executionId}`;
         console.log('Connecting WebSocket:', {
           scriptId,
           executionId,
-          wsUrl: `${WS_BASE_URL}/api/scripts/${scriptId}/ws?execution_id=${executionId}`
+          wsUrl
         });
 
-        ws = new WebSocket(`${WS_BASE_URL}/api/scripts/${scriptId}/ws?execution_id=${executionId}`);
+        ws = new WebSocket(wsUrl);
         let isConnected = false;
         let hasReceivedData = false;
 
+        // Add connection timeout
+        const connectionTimeout = setTimeout(() => {
+          if (!isConnected) {
+            console.log('WebSocket connection timeout');
+            ws?.close();
+          }
+        }, 5000);
+
         ws.onopen = () => {
-          console.log('WebSocket connected');
+          console.log('WebSocket connected successfully');
           isConnected = true;
+          clearTimeout(connectionTimeout);
           setExecutionOutput(prev => prev + 'Connected to execution stream...\n');
-          
-          // Set a timeout to check if we've received any data
-          setTimeout(() => {
-            if (!hasReceivedData) {
-              console.log('No data received after connection timeout');
-              ws?.close();
-            }
-          }, 5000); // 5 second timeout
         };
 
         ws.onmessage = (event) => {
@@ -384,10 +386,12 @@ export function ScriptDetailPage() {
           if (!isConnected && retryCount < maxRetries) {
             console.log(`Retrying WebSocket connection (${retryCount + 1}/${maxRetries})...`);
             retryCount++;
+            clearTimeout(connectionTimeout);
             // Wait a bit before retrying
             await new Promise(resolve => setTimeout(resolve, 1000));
             connectWebSocket();
           } else if (!isConnected) {
+            clearTimeout(connectionTimeout);
             // If we still can't connect after retries, check execution status directly
             try {
               console.log('Checking execution status after WebSocket failure');
@@ -397,14 +401,17 @@ export function ScriptDetailPage() {
               if (latestExecution) {
                 console.log('Found execution status:', latestExecution.status);
                 setExecutionStatus(latestExecution.status);
-                if (latestExecution.status === ExecutionStatus.SUCCESS) {
-                  setExecutionOutput(prev => 
-                    prev + 'Script executed successfully. Check execution history for logs.\n'
-                  );
+                // Get the logs directly since WebSocket failed
+                const logs = await scriptsApi.getExecutionLogs(scriptId, executionId);
+                if (logs) {
+                  setExecutionOutput(prev => prev + logs + '\n');
                 }
                 setIsExecuting(false);
               } else {
                 console.log('No execution found with ID:', executionId);
+                setExecutionOutput(prev => 
+                  prev + 'Error: Could not establish WebSocket connection. Please check execution history for logs.\n'
+                );
               }
             } catch (err) {
               console.error('Error checking execution status:', err);
@@ -414,6 +421,7 @@ export function ScriptDetailPage() {
 
         ws.onclose = () => {
           console.log('WebSocket closed');
+          clearTimeout(connectionTimeout);
           if (!isConnected && retryCount < maxRetries) {
             console.log(`Retrying WebSocket connection (${retryCount + 1}/${maxRetries})...`);
             retryCount++;
@@ -421,15 +429,19 @@ export function ScriptDetailPage() {
             setTimeout(connectWebSocket, 1000);
           } else if (!isConnected) {
             // Final fallback: check execution status
-            loadExecutions().then(() => {
+            loadExecutions().then(async () => {
               const execution = executions.find(e => e.id === executionId);
               if (execution) {
                 console.log('Found execution after WebSocket close:', execution);
                 setExecutionStatus(execution.status);
-                if (execution.status === ExecutionStatus.SUCCESS) {
-                  setExecutionOutput(prev => 
-                    prev + 'Script executed successfully. Check execution history for logs.\n'
-                  );
+                // Get the logs directly since WebSocket failed
+                try {
+                  const logs = await scriptsApi.getExecutionLogs(scriptId, executionId);
+                  if (logs) {
+                    setExecutionOutput(prev => prev + logs + '\n');
+                  }
+                } catch (err) {
+                  console.error('Error fetching logs:', err);
                 }
                 setIsExecuting(false);
               }
