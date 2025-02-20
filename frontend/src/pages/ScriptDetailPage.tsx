@@ -344,7 +344,6 @@ export function ScriptDetailPage() {
 
         ws = new WebSocket(wsUrl);
         let isConnected = false;
-        let hasReceivedData = false;
 
         // Add connection timeout
         const connectionTimeout = setTimeout(() => {
@@ -364,7 +363,6 @@ export function ScriptDetailPage() {
         ws.onmessage = (event) => {
           const message = event.data;
           console.log('WebSocket message received:', message);
-          hasReceivedData = true;
 
           if (message.startsWith('STATUS:')) {
             const status = message.split(':')[1].trim().toUpperCase();
