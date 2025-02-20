@@ -357,7 +357,6 @@ export function ScriptDetailPage() {
           console.log('WebSocket connected successfully');
           isConnected = true;
           clearTimeout(connectionTimeout);
-          setExecutionOutput(prev => prev + 'Connected to execution stream...\n');
         };
 
         ws.onmessage = (event) => {
@@ -374,14 +373,22 @@ export function ScriptDetailPage() {
               ws?.close();
               loadExecutions(); // Refresh executions list
               
+              // Add completion message based on status
+              const completionMessage = status === ExecutionStatus.SUCCESS 
+                ? '\nScript execution completed successfully.'
+                : '\nScript execution failed.';
+              
               // Fetch logs directly after completion
               scriptsApi.getExecutionLogs(scriptId, executionId).then(logs => {
                 if (logs) {
                   console.log('Fetched logs after completion:', logs);
-                  setExecutionOutput(prev => prev + logs + '\n');
+                  setExecutionOutput(prev => prev + logs + completionMessage + '\n');
+                } else {
+                  setExecutionOutput(prev => prev + completionMessage + '\n');
                 }
               }).catch(err => {
                 console.error('Error fetching logs after completion:', err);
+                setExecutionOutput(prev => prev + completionMessage + '\n');
               });
             }
           } else if (message.includes('Warning: Execution completed but output file was not created')) {
@@ -398,11 +405,15 @@ export function ScriptDetailPage() {
                   'This is normal if the script does not print anything.\n'
                 );
               }
+              // Ensure execution is marked as complete
+              setIsExecuting(false);
             }).catch(err => {
               console.error('Error fetching logs after warning:', err);
               setExecutionOutput(prev => 
                 prev + 'Script execution completed, but failed to retrieve logs.\n'
               );
+              // Ensure execution is marked as complete even on error
+              setIsExecuting(false);
             });
           } else {
             setExecutionOutput(prev => prev + message + '\n');
@@ -444,12 +455,14 @@ export function ScriptDetailPage() {
                 setExecutionOutput(prev => 
                   prev + 'Error: Could not establish WebSocket connection. Please check execution history for logs.\n'
                 );
+                setIsExecuting(false);
               }
             } catch (err) {
               console.error('Error checking execution status:', err);
               setExecutionOutput(prev => 
                 prev + 'Error: Failed to retrieve execution status. Please try again.\n'
               );
+              setIsExecuting(false);
             }
           }
         };
