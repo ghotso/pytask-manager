@@ -372,22 +372,38 @@ export function ScriptDetailPage() {
             if (status === ExecutionStatus.SUCCESS || status === ExecutionStatus.FAILURE) {
               setIsExecuting(false);
               ws?.close();
-              
-              // If this was the last message and we haven't received any output
-              if (!executionOutput.trim()) {
-                setExecutionOutput(prev => 
-                  prev + 'Script execution completed. No output was generated.\n'
-                );
-              }
-              
               loadExecutions(); // Refresh executions list
+              
+              // Fetch logs directly after completion
+              scriptsApi.getExecutionLogs(scriptId, executionId).then(logs => {
+                if (logs) {
+                  console.log('Fetched logs after completion:', logs);
+                  setExecutionOutput(prev => prev + logs + '\n');
+                }
+              }).catch(err => {
+                console.error('Error fetching logs after completion:', err);
+              });
             }
           } else if (message.includes('Warning: Execution completed but output file was not created')) {
-            // Handle the specific warning about missing output file
-            setExecutionOutput(prev => 
-              prev + 'Script execution completed successfully, but did not generate any output.\n' +
-              'This is normal if the script does not print anything.\n'
-            );
+            // When we get this warning, immediately try to fetch the logs
+            scriptsApi.getExecutionLogs(scriptId, executionId).then(logs => {
+              if (logs) {
+                console.log('Fetched logs after warning:', logs);
+                setExecutionOutput(prev => 
+                  prev + 'Script execution completed. Output retrieved from logs:\n' + logs + '\n'
+                );
+              } else {
+                setExecutionOutput(prev => 
+                  prev + 'Script execution completed successfully, but did not generate any output.\n' +
+                  'This is normal if the script does not print anything.\n'
+                );
+              }
+            }).catch(err => {
+              console.error('Error fetching logs after warning:', err);
+              setExecutionOutput(prev => 
+                prev + 'Script execution completed, but failed to retrieve logs.\n'
+              );
+            });
           } else {
             setExecutionOutput(prev => prev + message + '\n');
           }
