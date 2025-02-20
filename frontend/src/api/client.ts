@@ -95,10 +95,24 @@ export const scriptsApi = {
   },
 
   execute: async (id: number) => {
-    const response = await api.post<{ execution_id: number; status: string }>(
-      `/api/scripts/${id}/execute`
-    );
-    return response.data;
+    try {
+      console.log('Executing script:', id);
+      const response = await api.post<{ execution_id: number; status: string }>(
+        `/api/scripts/${id}/execute`
+      );
+      console.log('Execute response:', response);
+      
+      // Validate response data
+      if (!response.data || typeof response.data.execution_id === 'undefined') {
+        console.error('Invalid response data:', response.data);
+        throw new Error('Invalid response from server: missing execution_id');
+      }
+      
+      return response.data;
+    } catch (error) {
+      console.error('Error in execute API call:', error);
+      throw error;
+    }
   },
 
   checkDependencies: async (id: number) => {

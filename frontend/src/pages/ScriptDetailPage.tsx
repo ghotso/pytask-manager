@@ -307,11 +307,25 @@ export function ScriptDetailPage() {
       const response = await scriptsApi.execute(scriptId);
       console.log('Execution started:', response);
 
-      if (!response || !response.execution_id) {
-        throw new Error('No execution ID received from server');
+      // Add detailed logging of the response
+      console.log('Response details:', {
+        hasResponse: !!response,
+        responseType: typeof response,
+        executionId: response?.execution_id,
+        fullResponse: JSON.stringify(response)
+      });
+
+      // Validate response structure
+      if (!response || typeof response !== 'object') {
+        throw new Error('Invalid response from server');
       }
 
       const executionId = response.execution_id;
+      if (!executionId && executionId !== 0) {  // Allow 0 as valid ID
+        console.error('Invalid execution_id in response:', response);
+        throw new Error('No execution ID received from server');
+      }
+
       let retryCount = 0;
       const maxRetries = 3;
       let ws: WebSocket | null = null;
@@ -321,21 +335,38 @@ export function ScriptDetailPage() {
           ws.close();
         }
 
+        console.log('Connecting WebSocket:', {
+          scriptId,
+          executionId,
+          wsUrl: `${WS_BASE_URL}/api/scripts/${scriptId}/ws?execution_id=${executionId}`
+        });
+
         ws = new WebSocket(`${WS_BASE_URL}/api/scripts/${scriptId}/ws?execution_id=${executionId}`);
         let isConnected = false;
+        let hasReceivedData = false;
 
         ws.onopen = () => {
           console.log('WebSocket connected');
           isConnected = true;
           setExecutionOutput(prev => prev + 'Connected to execution stream...\n');
+          
+          // Set a timeout to check if we've received any data
+          setTimeout(() => {
+            if (!hasReceivedData) {
+              console.log('No data received after connection timeout');
+              ws?.close();
+            }
+          }, 5000); // 5 second timeout
         };
 
         ws.onmessage = (event) => {
           const message = event.data;
-          console.log('WebSocket message:', message);
+          console.log('WebSocket message received:', message);
+          hasReceivedData = true;
 
           if (message.startsWith('STATUS:')) {
             const status = message.split(':')[1].trim().toUpperCase();
+            console.log('Status update received:', status);
             setExecutionStatus(status as ExecutionStatus);
             
             if (status === ExecutionStatus.SUCCESS || status === ExecutionStatus.FAILURE) {
@@ -359,9 +390,12 @@ export function ScriptDetailPage() {
           } else if (!isConnected) {
             // If we still can't connect after retries, check execution status directly
             try {
+              console.log('Checking execution status after WebSocket failure');
               const executions = await scriptsApi.listExecutions(scriptId);
               const latestExecution = executions.find(e => e.id === executionId);
+              
               if (latestExecution) {
+                console.log('Found execution status:', latestExecution.status);
                 setExecutionStatus(latestExecution.status);
                 if (latestExecution.status === ExecutionStatus.SUCCESS) {
                   setExecutionOutput(prev => 
@@ -369,6 +403,8 @@ export function ScriptDetailPage() {
                   );
                 }
                 setIsExecuting(false);
+              } else {
+                console.log('No execution found with ID:', executionId);
               }
             } catch (err) {
               console.error('Error checking execution status:', err);
@@ -388,6 +424,7 @@ export function ScriptDetailPage() {
             loadExecutions().then(() => {
               const execution = executions.find(e => e.id === executionId);
               if (execution) {
+                console.log('Found execution after WebSocket close:', execution);
                 setExecutionStatus(execution.status);
                 if (execution.status === ExecutionStatus.SUCCESS) {
                   setExecutionOutput(prev => 
