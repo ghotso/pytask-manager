@@ -372,8 +372,22 @@ export function ScriptDetailPage() {
             if (status === ExecutionStatus.SUCCESS || status === ExecutionStatus.FAILURE) {
               setIsExecuting(false);
               ws?.close();
+              
+              // If this was the last message and we haven't received any output
+              if (!executionOutput.trim()) {
+                setExecutionOutput(prev => 
+                  prev + 'Script execution completed. No output was generated.\n'
+                );
+              }
+              
               loadExecutions(); // Refresh executions list
             }
+          } else if (message.includes('Warning: Execution completed but output file was not created')) {
+            // Handle the specific warning about missing output file
+            setExecutionOutput(prev => 
+              prev + 'Script execution completed successfully, but did not generate any output.\n' +
+              'This is normal if the script does not print anything.\n'
+            );
           } else {
             setExecutionOutput(prev => prev + message + '\n');
           }
@@ -403,6 +417,10 @@ export function ScriptDetailPage() {
                 const logs = await scriptsApi.getExecutionLogs(scriptId, executionId);
                 if (logs) {
                   setExecutionOutput(prev => prev + logs + '\n');
+                } else {
+                  setExecutionOutput(prev => 
+                    prev + 'Script execution completed. No output was captured.\n'
+                  );
                 }
                 setIsExecuting(false);
               } else {
@@ -413,6 +431,9 @@ export function ScriptDetailPage() {
               }
             } catch (err) {
               console.error('Error checking execution status:', err);
+              setExecutionOutput(prev => 
+                prev + 'Error: Failed to retrieve execution status. Please try again.\n'
+              );
             }
           }
         };
