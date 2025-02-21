@@ -3,6 +3,7 @@ import asyncio
 import logging
 import os
 import time
+import venv
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional, Dict, Any, cast
@@ -54,16 +55,48 @@ async def list_scripts(
     tag: Optional[str] = None,
 ) -> List[Script]:
     """List all scripts, optionally filtered by tag."""
+    # Base query with all needed relationships
     query = (
         select(Script)
         .options(selectinload(Script.tags))
         .options(selectinload(Script.dependencies))
         .options(selectinload(Script.schedules))
+        .options(
+            selectinload(
+                Script.executions
+            )
+        )
     )
+    
+    # Add tag filter if specified
     if tag:
         query = query.join(Script.tags).where(Tag.name == tag)
+    
+    # Order by script ID to ensure consistent results
+    query = query.order_by(Script.id)
+    
+    # Execute query and get results
     result = await session.execute(query)
-    return cast(List[Script], result.scalars().all())
+    scripts = list(result.scalars().all())
+    
+    # For each script, find its last execution
+    for script in scripts:
+        if script.executions:
+            # Sort executions by started_at in descending order and take the first one
+            sorted_executions = sorted(
+                script.executions,
+                key=lambda x: x.started_at if x.started_at is not None else datetime.min.replace(tzinfo=timezone.utc),
+                reverse=True
+            )
+            if sorted_executions:
+                # Set the most recent execution as last_execution
+                setattr(script, 'last_execution', sorted_executions[0])
+            else:
+                setattr(script, 'last_execution', None)
+        else:
+            setattr(script, 'last_execution', None)
+    
+    return scripts
 
 
 @router.post("/scripts", response_model=ScriptRead)
@@ -314,7 +347,7 @@ async def delete_script(
         # Delete script and clean up its environment
         manager = ScriptManager(script_id, base_dir=str(settings.scripts_dir))
         try:
-            manager.cleanup()
+            manager.cleanup(remove_environment=True)  # Remove everything since script is being deleted
         except Exception as e:
             logger.warning(f"Failed to clean up script directory: {e}")
             # Continue with deletion even if cleanup fails
@@ -530,8 +563,8 @@ async def execute_script(
         execution.error_message = f"Failed to set up script environment: {str(e)}"
         await session.commit()
         
-        # Clean up failed environment
-        script_manager.cleanup()
+        # Clean up temporary files only
+        script_manager.cleanup(remove_environment=False)
         
         # Re-raise as HTTP exception
         raise HTTPException(
@@ -594,115 +627,148 @@ async def websocket_endpoint(
     script_id: int,
     session: AsyncSession = Depends(get_session),
 ):
-    """WebSocket endpoint for real-time script execution."""
-    logger = logging.getLogger(__name__)
-    logger.info("WebSocket connection initiated")
-    
-    # Track file handle and position to prevent race conditions
-    file_handle = None
-    last_position = 0
-    execution = None
-    sent_messages = set()  # Track sent messages to prevent duplicates
-    status_message = None  # Store status message to send at the end
+    """WebSocket endpoint for script execution output streaming."""
+    await websocket.accept()
     
     try:
-        await websocket.accept()
-        logger.info("WebSocket connection accepted")
-        
-        # Get the most recent running execution for this script
-        result = await session.execute(
-            select(Execution)
-            .where(
-                Execution.script_id == script_id,
-                Execution.status.in_([ExecutionStatus.PENDING, ExecutionStatus.RUNNING])
-            )
-            .order_by(Execution.started_at.desc())
-        )
-        execution = result.scalar_one_or_none()
-        
-        if not execution:
-            logger.warning(f"No running execution found for script {script_id}")
-            await websocket.send_text("No running execution found")
-            await websocket.close(code=1000, reason="No running execution found")
+        # Get the execution ID from the query parameters
+        execution_id_str = websocket.query_params.get("execution_id")
+        if not execution_id_str:
+            logger.error("No execution ID provided in WebSocket connection")
+            await websocket.send_text("Error: No execution ID provided in WebSocket connection")
+            await websocket.close()
             return
             
-        logger.info(f"Found running execution {execution.id}")
+        try:
+            execution_id = int(execution_id_str)
+        except ValueError:
+            logger.error(f"Invalid execution ID format: {execution_id_str}")
+            await websocket.send_text(f"Error: Invalid execution ID format: {execution_id_str}")
+            await websocket.close()
+            return
+            
+        # Wait for execution to be ready (max 5 seconds)
+        start_time = time.monotonic()
+        execution = None
+        while time.monotonic() - start_time < 5:
+            # Get execution details
+            result = await session.execute(
+                select(Execution).where(Execution.id == execution_id)
+            )
+            execution = result.scalar_one_or_none()
+            
+            if execution:
+                break
+                
+            await asyncio.sleep(0.1)  # Short delay between checks
+            
+        if not execution:
+            logger.error(f"Execution {execution_id} not found after waiting")
+            await websocket.send_text(f"Error: Execution {execution_id} not found")
+            await websocket.close()
+            return
+            
+        # Verify script ID matches
+        if execution.script_id != script_id:
+            logger.error(f"Execution {execution_id} does not belong to script {script_id}")
+            await websocket.send_text(f"Error: Execution {execution_id} does not belong to script {script_id}")
+            await websocket.close()
+            return
         
         # Create script manager to read output
         manager = ScriptManager(script_id, base_dir=str(settings.scripts_dir))
-        last_status = execution.status
         output_file = manager.script_dir / f"output_{execution.id}.txt"
         
-        # Send initial connection message only if not sent before
-        initial_message = "Connected to execution stream..."
-        if initial_message not in sent_messages:
-            await websocket.send_text(initial_message)
-            sent_messages.add(initial_message)
-            logger.info("Sent initial connection message")
+        # Send initial connection message
+        await websocket.send_text("Connected to execution stream...")
         
-        # Wait for output file to be created (max 10 seconds)
+        # Wait for output file to be created (max 60 seconds)
         start_time = time.monotonic()
-        while not output_file.exists():
-            if time.monotonic() - start_time > 10:
-                logger.warning("Output file not created within timeout")
+        should_break = False
+        last_status = None
+        
+        while not output_file.exists() and not should_break:
+            if time.monotonic() - start_time > 60:
+                logger.warning(f"Output file not created within timeout for execution {execution_id}")
                 await websocket.send_text("Error: Output file not created within timeout")
                 return
-            await asyncio.sleep(0.1)
-        
-        # Open file in binary mode for better buffering
-        with open(output_file, 'rb') as file:
-            file_handle = file
             
-            while True:
-                # Check execution status
-                await session.refresh(execution)
-                if execution.status != last_status:
-                    status_message = f"STATUS: {execution.status}"
-                    last_status = execution.status
-                
-                # Read new content
-                file.seek(last_position)
-                new_content = file.read()
-                
-                if new_content:
-                    try:
-                        # Decode and process new content line by line
-                        text = new_content.decode('utf-8')
-                        lines = text.splitlines()
-                        
-                        for line in lines:
-                            # Remove ERROR: prefix from log lines
-                            clean_line = line.replace('ERROR: ', '')
-                            if clean_line and clean_line not in sent_messages:
-                                await websocket.send_text(clean_line)
-                                sent_messages.add(clean_line)
-                        
-                        last_position = file.tell()
-                    except UnicodeDecodeError as e:
-                        logger.error(f"Failed to decode file content: {e}")
+            try:
+                # Check execution status in a new session context
+                async with get_session_context() as check_session:
+                    result = await check_session.execute(
+                        select(Execution).where(Execution.id == execution.id)
+                    )
+                    current_execution = result.scalar_one_or_none()
+                    
+                    if not current_execution:
+                        logger.error(f"Execution {execution.id} not found during status check")
                         continue
+                    
+                    # Only send status update if it changed
+                    if current_execution.status != last_status:
+                        await websocket.send_text(f"STATUS: {current_execution.status}")
+                        last_status = current_execution.status
+                    
+                    # Check if execution completed before output file was created
+                    if current_execution.status in [ExecutionStatus.SUCCESS, ExecutionStatus.FAILURE]:
+                        if current_execution.error_message:
+                            await websocket.send_text(f"Error: {current_execution.error_message}")
+                        
+                        # For successful executions, wait a bit longer for the file
+                        if current_execution.status == ExecutionStatus.SUCCESS:
+                            if time.monotonic() - start_time <= 5:  # Give extra 5 seconds for file creation
+                                await asyncio.sleep(0.5)
+                                continue
+                            else:
+                                logger.warning(f"Execution {execution_id} succeeded but output file was not created")
+                                await websocket.send_text("Warning: Execution completed but output file was not created")
+                                return
+                        
+                        should_break = True
+                        continue
+            
+            except Exception as e:
+                logger.error(f"Error checking execution status: {e}")
+                await asyncio.sleep(0.5)
+                continue
+            
+            await asyncio.sleep(0.5)
+        
+        if should_break:
+            return
+            
+        # Start reading output
+        try:
+            async for line in manager.read_output(execution.id):
+                await websocket.send_text(line.rstrip())
                 
-                # If execution is complete, send status and break
-                if execution.status in [ExecutionStatus.SUCCESS, ExecutionStatus.FAILURE]:
-                    if status_message and status_message not in sent_messages:
-                        await websocket.send_text(status_message)
-                        sent_messages.add(status_message)
-                    await websocket.send_text("Execution finished.")
-                    break
-                
-                await asyncio.sleep(0.1)  # Small delay to prevent busy waiting
-                
+                # Check execution status periodically
+                async with get_session_context() as check_session:
+                    result = await check_session.execute(
+                        select(Execution).where(Execution.id == execution.id)
+                    )
+                    current_execution = result.scalar_one_or_none()
+                    
+                    if current_execution and current_execution.status != last_status:
+                        await websocket.send_text(f"STATUS: {current_execution.status}")
+                        last_status = current_execution.status
+                        
+                        if current_execution.status == ExecutionStatus.FAILURE and current_execution.error_message:
+                            await websocket.send_text(f"Error: {current_execution.error_message}")
+                    
+        except Exception as e:
+            logger.error(f"Error reading output: {e}")
+            await websocket.send_text(f"Error reading output: {str(e)}")
+            
     except WebSocketDisconnect:
-        logger.info("WebSocket disconnected by client")
+        logger.info("WebSocket client disconnected")
     except Exception as e:
-        logger.error(f"Error in WebSocket connection: {e}")
-        if not websocket.client_state.DISCONNECTED:
+        logger.error(f"WebSocket error: {e}")
+        try:
             await websocket.send_text(f"Error: {str(e)}")
-    finally:
-        if file_handle:
-            file_handle.close()
-        if not websocket.client_state.DISCONNECTED:
-            await websocket.close()
+        except Exception:
+            pass
 
 
 @router.websocket("/scripts/{script_id}/dependencies/ws")
@@ -720,6 +786,9 @@ async def dependency_websocket_endpoint(
     last_position = 0
     sent_messages = set()  # Track sent messages to prevent duplicates
     
+    # Standard packages to filter out
+    standard_packages = {'pip', 'setuptools', 'wheel'}
+    
     try:
         await websocket.accept()
         logger.info("WebSocket connection accepted")
@@ -735,14 +804,21 @@ async def dependency_websocket_endpoint(
             sent_messages.add(initial_message)
             logger.info("Sent initial connection message")
         
-        # Wait for output file to be created (max 10 seconds)
+        # Wait for output file to be created (max 30 seconds)
         start_time = time.monotonic()
         while not output_file.exists():
-            if time.monotonic() - start_time > 10:
+            if time.monotonic() - start_time > 30:
                 logger.warning("Output file not created within timeout")
                 await websocket.send_text("Error: Output file not created within timeout")
                 return
             await asyncio.sleep(0.1)
+            
+            # Check for pip_finished file to detect early failures
+            if (manager.script_dir / "pip_finished").exists():
+                if not (manager.script_dir / "pip_success").exists():
+                    logger.warning("Dependency installation failed")
+                    await websocket.send_text("Error: Dependency installation failed")
+                    return
         
         # Open file in binary mode for better buffering
         with open(output_file, 'rb') as file:
@@ -762,7 +838,14 @@ async def dependency_websocket_endpoint(
                         for line in lines:
                             # Remove ERROR: prefix from log lines
                             clean_line = line.replace('ERROR: ', '')
-                            if clean_line and clean_line not in sent_messages:
+                            
+                            # Skip lines related to standard packages
+                            should_skip = any(
+                                pkg in clean_line.lower()
+                                for pkg in standard_packages
+                            )
+                            
+                            if clean_line and not should_skip and clean_line not in sent_messages:
                                 await websocket.send_text(clean_line)
                                 sent_messages.add(clean_line)
                         
@@ -784,14 +867,14 @@ async def dependency_websocket_endpoint(
     except WebSocketDisconnect:
         logger.info("WebSocket disconnected by client")
     except Exception as e:
-        logger.error(f"Error in WebSocket connection: {e}")
-        if not websocket.client_state.DISCONNECTED:
+        logger.error(f"Error in dependency WebSocket: {e}")
+        try:
             await websocket.send_text(f"Error: {str(e)}")
+        except:
+            pass
     finally:
         if file_handle:
             file_handle.close()
-        if not websocket.client_state.DISCONNECTED:
-            await websocket.close()
 
 
 async def _install_dependencies_task(script_id: int) -> None:
@@ -818,13 +901,48 @@ async def _install_dependencies_task(script_id: int) -> None:
                     file.unlink()
             
             try:
-                # First, upgrade pip, setuptools, and wheel
-                await manager._run_pip("install", "--upgrade", "pip", "setuptools", "wheel")
+                # Ensure script directory exists
+                manager.script_dir.mkdir(parents=True, exist_ok=True)
                 
-                # Then install each dependency individually to see progress for each
+                # Write requirements.txt
+                requirements = []
                 for dep in script.dependencies:
-                    package_spec = f"{dep.package_name}{dep.version_spec}" if dep.version_spec else dep.package_name
-                    await manager._run_pip("install", package_spec)
+                    if not dep.version_spec or dep.version_spec in ['*', '']:
+                        requirements.append(dep.package_name)
+                    elif dep.version_spec.startswith('=='):
+                        requirements.append(f"{dep.package_name}{dep.version_spec}")
+                    elif dep.version_spec.startswith(('>=', '<=', '>', '<', '~=')):
+                        requirements.append(f"{dep.package_name}{dep.version_spec}")
+                    else:
+                        requirements.append(dep.package_name)
+                
+                manager.requirements_path.write_text("\n".join(requirements))
+                
+                # Create virtual environment if it doesn't exist
+                if not manager.venv_dir.exists() or not manager.python_path.exists():
+                    builder = venv.EnvBuilder(
+                        system_site_packages=False,
+                        clear=True,
+                        with_pip=True,
+                        upgrade_deps=True,
+                        symlinks=False
+                    )
+                    builder.create(manager.venv_dir)
+                
+                # Silently upgrade pip, setuptools, and wheel (no output logging)
+                await manager._run_pip("install", "--upgrade", "pip", "setuptools", "wheel", "--quiet")
+                
+                # Install each dependency individually with full logging
+                for dep in script.dependencies:
+                    if not dep.version_spec or dep.version_spec in ['*', '']:
+                        package_spec = dep.package_name
+                    elif dep.version_spec.startswith('=='):
+                        package_spec = f"{dep.package_name}{dep.version_spec}"
+                    elif dep.version_spec.startswith(('>=', '<=', '>', '<', '~=')):
+                        package_spec = f"{dep.package_name}{dep.version_spec}"
+                    else:
+                        package_spec = dep.package_name
+                    await manager._run_pip("install", package_spec, "--no-cache-dir")
                 
                 # Get installed versions
                 installed_versions = await manager.get_installed_versions()
@@ -855,19 +973,6 @@ async def _install_dependencies_task(script_id: int) -> None:
     except Exception as e:
         logger.exception(f"Error installing dependencies for script {script_id}")
         raise
-    
-    finally:
-        # Clean up temporary files after a delay to ensure WebSocket can read them
-        await asyncio.sleep(2)
-        try:
-            if pip_finished.exists():
-                pip_finished.unlink()
-            if pip_success.exists():
-                pip_success.unlink()
-            if pip_output.exists():
-                pip_output.unlink()
-        except Exception as e:
-            logger.error(f"Error cleaning up marker files: {e}")
 
 
 @router.post("/scripts/{script_id}/install-dependencies")
@@ -1080,9 +1185,69 @@ async def _execute_script(script_id: int, execution_id: int) -> None:
             logger.error(f"Error updating execution status: {commit_error}")
     
     finally:
-        # Always clean up the script manager
+        # Clean up temporary files only
         if manager:
             try:
-                manager.cleanup()
-            except Exception as cleanup_error:
-                logger.error(f"Error cleaning up script manager: {cleanup_error}")
+                manager.cleanup(remove_environment=False)
+            except:
+                pass
+
+
+@router.websocket("/executions/{execution_id}/output")
+async def execution_output(websocket: WebSocket, execution_id: int):
+    """Stream execution output via WebSocket."""
+    await websocket.accept()
+    
+    try:
+        # Get initial execution status
+        async with get_session_context() as session:
+            execution = await session.get(Execution, execution_id)
+            if not execution:
+                await websocket.close(code=4004, reason="Execution not found")
+                return
+            
+            script = await session.get(Script, execution.script_id)
+            if not script:
+                await websocket.close(code=4004, reason="Script not found")
+                return
+            
+            # Initialize script manager
+            manager = ScriptManager(script.id)
+            
+            # Stream output
+            try:
+                async for line in manager.read_output(execution_id):
+                    # Get fresh execution status
+                    async with get_session_context() as status_session:
+                        current_execution = await status_session.get(Execution, execution_id)
+                        if current_execution and current_execution.status == ExecutionStatus.FAILURE:
+                            # If execution failed, send error message
+                            error_msg = current_execution.error_message or "Unknown error occurred"
+                            await websocket.send_text(f"STATUS: {current_execution.status}\nError: {error_msg}")
+                            break
+                        elif current_execution and current_execution.status == ExecutionStatus.SUCCESS:
+                            # If execution succeeded, send success message
+                            await websocket.send_text(f"STATUS: {current_execution.status}")
+                            break
+                        
+                    # Send output line
+                    if line:
+                        await websocket.send_text(line)
+                        
+            except Exception as e:
+                logger.error(f"Error reading output: {e}")
+                await websocket.send_text(f"Error: {str(e)}")
+                
+    except WebSocketDisconnect:
+        logger.info(f"WebSocket disconnected for execution {execution_id}")
+    except Exception as e:
+        logger.error(f"Error in WebSocket connection: {e}")
+        try:
+            await websocket.close(code=4000, reason=str(e))
+        except:
+            pass
+    finally:
+        try:
+            await websocket.close()
+        except:
+            pass

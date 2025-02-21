@@ -95,10 +95,25 @@ export const scriptsApi = {
   },
 
   execute: async (id: number) => {
-    const response = await api.post<{ execution_id: number; status: string }>(
-      `/api/scripts/${id}/execute`
-    );
-    return response.data;
+    try {
+      console.log('Executing script:', id);
+      const response = await api.post<{ id: number; script_id: number; status: string }>(
+        `/api/scripts/${id}/execute`
+      );
+      console.log('Execute response:', response);
+      
+      // Map the response to the expected format
+      const executionData = {
+        execution_id: response.data.id,
+        status: response.data.status
+      };
+      
+      console.log('Mapped execution data:', executionData);
+      return executionData;
+    } catch (error) {
+      console.error('Error in execute API call:', error);
+      throw error;
+    }
   },
 
   checkDependencies: async (id: number) => {

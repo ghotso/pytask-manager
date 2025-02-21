@@ -13,7 +13,6 @@ on:
           - dev
   push:
     branches:
-      - main
       - dev
     tags:
       - 'v*'

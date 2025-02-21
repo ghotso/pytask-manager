@@ -14,6 +14,7 @@ import aiofiles
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from .config import settings
 from .database import get_session_context
@@ -102,101 +103,33 @@ class ScriptManager:
         return self.venv_dir / "bin" / "python"
     
     async def setup_environment(self, script_content: str, dependencies: List[Dependency]) -> None:
-        """Set up the script environment with virtual environment and dependencies."""
+        """Set up the script environment."""
         logger.info(f"Setting up environment for script {self.script_id}")
         
-        # Clean up any existing environment first
-        self.cleanup()
-        
         try:
-            # Create script directory with proper permissions
+            # Create script directory if it doesn't exist
             self.script_dir.mkdir(parents=True, exist_ok=True)
-            try:
-                os.chmod(str(self.script_dir), 0o777)  # Ensure directory is writable
-            except Exception as e:
-                logger.warning(f"Failed to set directory permissions: {e}")
             
             # Write script content
-            logger.debug(f"Writing script content to {self.script_path}")
-            self.script_path.write_text(script_content)
-            try:
-                os.chmod(str(self.script_path), 0o666)  # Make script readable/writable
-            except Exception as e:
-                logger.warning(f"Failed to set script file permissions: {e}")
+            script_path = self.script_dir / "script.py"
+            script_path.write_text(script_content)
             
-            # Create virtual environment
-            logger.info(f"Creating virtual environment in {self.venv_dir}")
-            try:
-                builder = venv.EnvBuilder(
-                    system_site_packages=False,
-                    clear=True,
-                    with_pip=True,
-                    upgrade_deps=True,
-                    symlinks=False  # More compatible across systems
-                )
-                builder.create(self.venv_dir)
-                
-                # Make Python executable actually executable on Unix
-                if sys.platform != "win32":
-                    try:
-                        self.python_path.chmod(0o755)
-                    except Exception as e:
-                        logger.warning(f"Failed to set Python executable permissions: {e}")
-                
-                # Verify Python executable exists
-                if not self.python_path.exists():
-                    raise RuntimeError(f"Failed to create Python executable at {self.python_path}")
-                
-                # Upgrade pip to latest version
-                await self._run_pip("install", "--upgrade", "pip", "setuptools", "wheel")
-                
-            except Exception as e:
-                logger.error(f"Failed to create virtual environment: {e}")
-                raise RuntimeError(f"Failed to create virtual environment: {e}")
+            # Write requirements.txt (but don't install)
+            requirements = []
+            for dep in dependencies:
+                if not dep.version_spec or dep.version_spec in ['*', '']:
+                    requirements.append(dep.package_name)
+                elif dep.version_spec.startswith('=='):
+                    requirements.append(f"{dep.package_name}{dep.version_spec}")
+                elif dep.version_spec.startswith(('>=', '<=', '>', '<', '~=')):
+                    requirements.append(f"{dep.package_name}{dep.version_spec}")
+                else:
+                    requirements.append(dep.package_name)
             
-            # Install dependencies if any
-            if dependencies:
-                logger.info("Installing dependencies")
-                # Write requirements.txt with proper version specs
-                requirements = []
-                for dep in dependencies:
-                    if not dep.version_spec or dep.version_spec in ['*', '']:
-                        # For wildcard or empty version spec, just use the package name
-                        requirements.append(dep.package_name)
-                    elif dep.version_spec.startswith('=='):
-                        # Exact version requirement
-                        requirements.append(f"{dep.package_name}{dep.version_spec}")
-                    elif dep.version_spec.startswith(('>=', '<=', '>', '<', '~=')):
-                        # Standard version comparisons
-                        requirements.append(f"{dep.package_name}{dep.version_spec}")
-                    else:
-                        # For any other format, default to latest version
-                        requirements.append(dep.package_name)
-                
-                self.requirements_path.write_text("\n".join(requirements))
-                
-                try:
-                    # Install requirements
-                    await self._run_pip(
-                        "install",
-                        "-r", str(self.requirements_path),
-                        "--no-cache-dir"  # Avoid caching issues
-                    )
-                    
-                    # Update installed versions
-                    installed_versions = await self.get_installed_versions()
-                    for dep in dependencies:
-                        if dep.package_name in installed_versions:
-                            dep.installed_version = installed_versions[dep.package_name]
-                            
-                except Exception as e:
-                    logger.error(f"Failed to install dependencies: {e}")
-                    raise RuntimeError(f"Failed to install dependencies: {e}")
-        
+            self.requirements_path.write_text("\n".join(requirements))
+            
         except Exception as e:
-            logger.error(f"Failed to set up environment: {e}")
-            # Clean up on failure
-            self.cleanup()
+            logger.error(f"Error setting up environment: {e}")
             raise
 
     async def _run_pip(self, *args: str) -> None:
@@ -273,221 +206,216 @@ class ScriptManager:
                 except Exception as e:
                     logger.error(f"Error terminating pip process: {e}")
 
+    async def has_uninstalled_dependencies(self) -> bool:
+        """Check if script has any uninstalled dependencies."""
+        try:
+            # First check if virtual environment exists
+            if not self.venv_dir.exists() or not self.python_path.exists():
+                logger.warning(f"Virtual environment not found for script {self.script_id}")
+                return True
+                
+            async with get_session_context() as session:
+                # Get a fresh copy of the script with dependencies
+                result = await session.execute(
+                    select(Script)
+                    .options(selectinload(Script.dependencies))
+                    .where(Script.id == self.script_id)
+                )
+                script = result.scalar_one_or_none()
+                
+                if not script:
+                    logger.error(f"Script {self.script_id} not found")
+                    return False
+                
+                # Get currently installed versions
+                installed_versions = await self.get_installed_versions()
+                
+                # Convert installed package names to lowercase for case-insensitive comparison
+                installed_packages = {name.lower(): version for name, version in installed_versions.items()}
+                
+                # Check each dependency
+                for dep in script.dependencies:
+                    package_name_lower = dep.package_name.lower()
+                    if package_name_lower not in installed_packages:
+                        logger.warning(f"Package {dep.package_name} not found in installed packages")
+                        return True
+                        
+                    installed_version = installed_packages[package_name_lower]
+                    if not installed_version:
+                        logger.warning(f"Package {dep.package_name} has no version installed")
+                        return True
+                        
+                    # Find the actual package name with correct case
+                    actual_name = next(
+                        name for name in installed_versions.keys()
+                        if name.lower() == package_name_lower
+                    )
+                    
+                    # Update installed version in database if changed
+                    if installed_version != dep.installed_version:
+                        dep.installed_version = installed_version
+                        await session.commit()
+                        logger.info(f"Updated installed version for {actual_name} to {installed_version}")
+                
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error checking dependencies: {e}")
+            return False
+
     async def execute(self, execution_id: int) -> AsyncGenerator[str, None]:
         """Execute the script and stream its output."""
-        logger = logging.getLogger(__name__)
-        process = None
-        stdout_task = None
-        stderr_task = None
-        output_file = None
-        binary_file = None
+        logger.info(f"Executing script {self.script_id}")
         
-        try:
-            # Ensure script exists
-            script_path = self.script_dir / "script.py"
-            if not script_path.exists():
-                raise FileNotFoundError(f"Script file not found: {script_path}")
-            
-            # Create output file path
-            output_path = self.script_dir / f"output_{execution_id}.txt"
-            
-            # Open output file in binary mode first for better buffering
-            binary_file = open(output_path, "wb", buffering=0)  # Unbuffered binary stream
-            output_file = io.TextIOWrapper(
-                binary_file,
-                encoding='utf-8',
-                write_through=True,  # Ensure writes go directly to the binary stream
-                line_buffering=True  # Enable line buffering
+        # Check for uninstalled dependencies first
+        if await self.has_uninstalled_dependencies():
+            logger.error(f"Script {self.script_id} has uninstalled dependencies")
+            raise RuntimeError("Cannot execute script with uninstalled dependencies")
+        
+        # Set up output file
+        output_file = self.script_dir / f"output_{execution_id}.txt"
+        if output_file.exists():
+            output_file.unlink()
+        
+        # Create process with output redirection
+        process = await asyncio.create_subprocess_exec(
+            str(self.python_path),
+            str(self.script_path),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=str(self.script_dir)
+        )
+        
+        if process.stdout is None or process.stderr is None:
+            raise RuntimeError("Failed to create process streams")
+        
+        # Open output file
+        with open(output_file, 'w', encoding='utf-8', buffering=1) as f:
+            # Process stdout and stderr concurrently
+            stdout_task = asyncio.create_task(
+                _stream_handler(process.stdout, f, False)
+            )
+            stderr_task = asyncio.create_task(
+                _stream_handler(process.stderr, f, True)
             )
             
-            # Create subprocess with timeout handling
             try:
-                process = await asyncio.create_subprocess_exec(
-                    str(self.python_path),
-                    "-u",  # Unbuffered output
-                    str(script_path),
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    env=os.environ.copy(),
-                    limit=8192  # Limit subprocess pipe buffer size
-                )
+                # Wait for both streams to complete
+                stdout_lines = await stdout_task
+                stderr_lines = await stderr_task
                 
-                if process.stdout is None or process.stderr is None:
-                    raise RuntimeError("Failed to create subprocess pipes")
+                # Wait for process to complete
+                return_code = await process.wait()
                 
-                # Set up stream tasks with timeout
-                try:
-                    stdout_task = asyncio.create_task(
-                        _stream_handler(process.stdout, output_file, False)
-                    )
-                    stderr_task = asyncio.create_task(
-                        _stream_handler(process.stderr, output_file, True)
-                    )
-                    
-                    # Wait for process with timeout
-                    try:
-                        await asyncio.wait_for(process.wait(), timeout=settings.max_execution_time)
-                    except asyncio.TimeoutError:
-                        logger.error("Script execution timed out")
-                        yield "Error: Script execution timed out after {settings.max_execution_time} seconds\n"
-                        raise RuntimeError(f"Script timed out after {settings.max_execution_time} seconds")
-                    
-                    # Wait for stream tasks to complete with timeout
-                    try:
-                        stdout_result, stderr_result = await asyncio.gather(
-                            stdout_task,
-                            stderr_task,
-                            return_exceptions=True
-                        )
-                        
-                        # Check for task exceptions
-                        for result in [stdout_result, stderr_result]:
-                            if isinstance(result, Exception):
-                                logger.error(f"Stream task failed: {result}")
-                                raise result
-                        
-                    except Exception as e:
-                        logger.error(f"Error in stream tasks: {e}")
-                        raise
-                    
-                    # Check process return code
-                    if process.returncode != 0:
-                        error_msg = f"Error: Script exited with return code {process.returncode}\n"
-                        output_file.write(error_msg)
-                        output_file.flush()
-                        yield error_msg
-                    
-                    # Read and yield output
-                    try:
-                        with open(output_path, 'r') as f:
-                            content = f.read()
-                            if content:
-                                yield content
-                    except Exception as e:
-                        logger.error(f"Error reading output file: {e}")
-                        raise
-                    
-                except Exception as e:
-                    logger.error(f"Error during execution: {e}")
-                    raise
+                # Yield all lines
+                for line in stdout_lines + stderr_lines:
+                    yield line
                 
+                # Yield return code if non-zero
+                if return_code != 0:
+                    yield f"Error: Script exited with return code {return_code}"
+                    
             except Exception as e:
-                logger.error(f"Error in execute: {e}")
+                logger.error(f"Error during execution: {e}")
+                yield f"Error: {str(e)}"
                 raise
-            
-        except Exception as e:
-            logger.error(f"Error in execute: {e}")
-            raise
-        
-        finally:
-            # Clean up resources in reverse order of creation
-            if stdout_task and not stdout_task.done():
-                stdout_task.cancel()
-            if stderr_task and not stderr_task.done():
-                stderr_task.cancel()
-            
-            # Close file handles
-            if output_file:
-                try:
-                    output_file.flush()
-                    output_file.close()
-                except:
-                    pass
-            if binary_file:
-                try:
-                    binary_file.close()
-                except:
-                    pass
-            
-            # Terminate process if still running
-            if process and process.returncode is None:
-                try:
-                    process.terminate()
-                    try:
-                        # Wait for process to terminate
-                        await asyncio.wait_for(process.wait(), timeout=5.0)
-                    except asyncio.TimeoutError:
-                        # Force kill if terminate doesn't work
-                        process.kill()
-                        await process.wait()
-                except Exception as e:
-                    logger.error(f"Error terminating process: {e}")
-                    # Try force kill as last resort
-                    try:
-                        process.kill()
-                        await process.wait()
-                    except:
-                        pass
 
-    def cleanup(self) -> None:
-        """Clean up script environment."""
+    def cleanup(self, remove_environment: bool = False) -> None:
+        """Clean up script environment.
+        
+        Args:
+            remove_environment: If True, removes the entire script directory including venv.
+                              If False, only removes temporary files (default).
+        """
         if not self.script_dir.exists():
             return
 
-        logger.info(f"Cleaning up script {self.script_id}")
+        logger.info(f"Cleaning up script {self.script_id} (remove_environment={remove_environment})")
         
-        # Clean up output files
+        # Clean up temporary files
         try:
+            # Remove output files
             for file in self.script_dir.glob("output_*.txt"):
                 try:
                     file.unlink()
                 except Exception as e:
                     logger.warning(f"Failed to remove output file {file}: {e}")
-        except Exception as e:
-            logger.warning(f"Error cleaning up output files: {e}")
-        
-        # First try to remove the venv directory
-        if self.venv_dir.exists():
-            try:
-                # On Windows, some files might be locked, so we need multiple attempts
-                max_attempts = 3
-                for attempt in range(max_attempts):
-                    try:
-                        shutil.rmtree(self.venv_dir, ignore_errors=False)
-                        break
-                    except OSError as e:
-                        if attempt == max_attempts - 1:
-                            logger.error(f"Failed to remove venv directory after {max_attempts} attempts: {e}")
-                            # If we can't remove venv, we'll still try to remove the script dir
-                        else:
-                            time.sleep(0.5)  # Wait before retry
-            except Exception as e:
-                logger.error(f"Error cleaning up venv directory: {e}")
-        
-        # Then try to remove the script directory
-        try:
-            if self.script_dir.exists():
-                # Try to ensure no processes are using the directory
-                for root, dirs, files in os.walk(self.script_dir, topdown=False):
-                    for name in files:
-                        try:
-                            os.chmod(os.path.join(root, name), 0o777)
-                        except:
-                            pass
-                    for name in dirs:
-                        try:
-                            os.chmod(os.path.join(root, name), 0o777)
-                        except:
-                            pass
+            
+            # Remove pip output file
+            if self.pip_log_path.exists():
+                try:
+                    self.pip_log_path.unlink()
+                except Exception as e:
+                    logger.warning(f"Failed to remove pip log file: {e}")
                 
-                # Attempt to remove the directory
-                max_attempts = 3
-                for attempt in range(max_attempts):
+            # Remove pip status files
+            for status_file in ["pip_finished", "pip_success"]:
+                status_path = self.script_dir / status_file
+                if status_path.exists():
                     try:
-                        shutil.rmtree(self.script_dir, ignore_errors=False)
-                        break
-                    except OSError as e:
-                        if attempt == max_attempts - 1:
-                            logger.error(f"Failed to remove script directory after {max_attempts} attempts: {e}")
-                        else:
-                            time.sleep(0.5)  # Wait before retry
+                        status_path.unlink()
+                    except Exception as e:
+                        logger.warning(f"Failed to remove status file {status_file}: {e}")
+        
         except Exception as e:
-            logger.error(f"Error cleaning up script directory: {e}")
-            # If we can't remove it normally, try force removal
+            logger.warning(f"Error cleaning up temporary files: {e}")
+        
+        # If remove_environment is True, remove everything
+        if remove_environment:
             try:
-                os.system(f"rm -rf {self.script_dir}")
-            except:
-                pass
+                # First try to remove the venv directory
+                if self.venv_dir.exists():
+                    try:
+                        # On Windows, some files might be locked, so we need multiple attempts
+                        max_attempts = 3
+                        for attempt in range(max_attempts):
+                            try:
+                                shutil.rmtree(self.venv_dir, ignore_errors=False)
+                                break
+                            except OSError as e:
+                                if attempt == max_attempts - 1:
+                                    logger.error(f"Failed to remove venv directory after {max_attempts} attempts: {e}")
+                                else:
+                                    time.sleep(0.5)  # Wait before retry
+                    except Exception as e:
+                        logger.error(f"Error cleaning up venv directory: {e}")
+                
+                # Then try to remove the script directory
+                try:
+                    if self.script_dir.exists():
+                        # Try to ensure no processes are using the directory
+                        for root, dirs, files in os.walk(self.script_dir, topdown=False):
+                            for name in files:
+                                try:
+                                    os.chmod(os.path.join(root, name), 0o777)
+                                except:
+                                    pass
+                            for name in dirs:
+                                try:
+                                    os.chmod(os.path.join(root, name), 0o777)
+                                except:
+                                    pass
+                        
+                        # Attempt to remove the directory
+                        max_attempts = 3
+                        for attempt in range(max_attempts):
+                            try:
+                                shutil.rmtree(self.script_dir, ignore_errors=False)
+                                break
+                            except OSError as e:
+                                if attempt == max_attempts - 1:
+                                    logger.error(f"Failed to remove script directory after {max_attempts} attempts: {e}")
+                                else:
+                                    time.sleep(0.5)  # Wait before retry
+                except Exception as e:
+                    logger.error(f"Error cleaning up script directory: {e}")
+                    # If we can't remove it normally, try force removal
+                    try:
+                        os.system(f"rm -rf {self.script_dir}")
+                    except:
+                        pass
+            except Exception as e:
+                logger.error(f"Error removing environment: {e}")
 
     async def check_dependencies(self) -> List[str]:
         """Check for outdated dependencies."""

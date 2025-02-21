@@ -72,9 +72,19 @@ export function DashboardPage() {
       const scriptsWithUninstalledDeps = scripts.filter(s => 
         s.dependencies.some(d => !d.installed_version)
       ).length;
-      const scriptsWithFailedLastRun = scripts.filter(s => 
-        s.last_execution?.status === ExecutionStatus.FAILURE
-      ).length;
+
+      // Get last execution for each script and count failures
+      let failedScripts = 0;
+      for (const script of scripts) {
+        try {
+          const executions = await scriptsApi.listExecutions(script.id, 1); // Get only the most recent execution
+          if (executions.length > 0 && executions[0].status === ExecutionStatus.FAILURE) {
+            failedScripts++;
+          }
+        } catch (error) {
+          console.error(`Failed to get executions for script ${script.id}:`, error);
+        }
+      }
 
       // Find next scheduled script
       const nextScript = findNextScheduledScript(scripts);
@@ -83,14 +93,14 @@ export function DashboardPage() {
         activeScripts,
         inactiveScripts,
         scriptsWithUninstalledDeps,
-        scriptsWithFailedLastRun,
+        scriptsWithFailedLastRun: failedScripts,
         nextScheduledScript: nextScript,
       });
 
       // Load recent executions
       const allExecutions: (Execution & { scriptName: string })[] = [];
       for (const script of scripts) {
-        const executions = await scriptsApi.listExecutions(script.id);
+        const executions = await scriptsApi.listExecutions(script.id, 8); // Limit to 8 executions per script
         allExecutions.push(
           ...executions.map(exec => ({
             ...exec,
@@ -151,7 +161,7 @@ export function DashboardPage() {
             <Card 
               withBorder 
               component={Link} 
-              to="/"
+              to="/scripts?filter=active"
               style={{ 
                 textDecoration: 'none', 
                 color: 'inherit',
@@ -174,7 +184,7 @@ export function DashboardPage() {
             <Card 
               withBorder 
               component={Link} 
-              to="/"
+              to="/scripts?filter=inactive"
               style={{ 
                 textDecoration: 'none', 
                 color: 'inherit',
@@ -197,7 +207,7 @@ export function DashboardPage() {
             <Card 
               withBorder 
               component={Link} 
-              to="/"
+              to="/scripts?filter=missing-deps"
               style={{ 
                 textDecoration: 'none', 
                 color: 'inherit',
@@ -220,7 +230,7 @@ export function DashboardPage() {
             <Card 
               withBorder 
               component={Link} 
-              to="/"
+              to="/scripts?filter=failed"
               style={{ 
                 textDecoration: 'none', 
                 color: 'inherit',

@@ -12,9 +12,10 @@ import {
   Title,
   Switch,
   Tooltip,
+  SegmentedControl,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { Link } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   IconPlus, 
   IconSearch, 
@@ -25,16 +26,27 @@ import {
 import { scriptsApi } from '../api/client';
 import { Script, Dependency, ExecutionStatus } from '../types';
 
+type FilterType = 'all' | 'active' | 'inactive' | 'failed' | 'missing-deps';
+
 export function ScriptList() {
-  // State for scripts list and UI controls
+  const location = useLocation();
+  const navigate = useNavigate();
   const [scripts, setScripts] = useState<Script[]>([]);
-  // Loading state only used for initial load
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [filter, setFilter] = useState<FilterType>('all');
+
+  // Parse filter from URL search params
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const filterParam = params.get('filter') as FilterType;
+    if (filterParam && ['all', 'active', 'inactive', 'failed', 'missing-deps'].includes(filterParam)) {
+      setFilter(filterParam);
+    }
+  }, [location.search]);
 
   const loadScripts = async (isInitialLoad = false) => {
     try {
-      // Only show loading state on initial load
       if (isInitialLoad) {
         setIsLoading(true);
       }
@@ -43,7 +55,6 @@ export function ScriptList() {
       setScripts(data);
     } catch (error) {
       console.error('Failed to load scripts:', error);
-      // Only show error notification on initial load failures
       if (isInitialLoad) {
         notifications.show({
           title: 'Error',
@@ -52,7 +63,6 @@ export function ScriptList() {
         });
       }
     } finally {
-      // Clear loading state only if this was the initial load
       if (isInitialLoad) {
         setIsLoading(false);
       }
@@ -60,31 +70,51 @@ export function ScriptList() {
   };
 
   useEffect(() => {
-    // Initial load with loading state
     loadScripts(true);
     
-    // Setup background polling without loading state
     const interval = setInterval(() => {
       loadScripts(false);
     }, 5000);
     
-    // Cleanup interval on unmount
     return () => clearInterval(interval);
   }, []);
 
+  const handleFilterChange = (value: FilterType) => {
+    setFilter(value);
+    // Update URL with new filter
+    const params = new URLSearchParams(location.search);
+    params.set('filter', value);
+    navigate({ search: params.toString() });
+  };
+
   const filteredScripts = scripts.filter(script => {
+    // First apply search filter
     const searchLower = searchQuery.toLowerCase();
-    return (
-      script.name.toLowerCase().includes(searchLower) ||
-      script.tags.some(tag => tag.name.toLowerCase().includes(searchLower))
-    );
+    const matchesSearch = script.name.toLowerCase().includes(searchLower) ||
+      script.tags.some(tag => tag.name.toLowerCase().includes(searchLower));
+
+    if (!matchesSearch) return false;
+
+    // Then apply status filter
+    switch (filter) {
+      case 'active':
+        return script.is_active;
+      case 'inactive':
+        return !script.is_active;
+      case 'failed':
+        return script.last_execution?.status === ExecutionStatus.FAILURE;
+      case 'missing-deps':
+        return script.dependencies.some(dep => !dep.installed_version);
+      default:
+        return true;
+    }
   });
 
   const isToggleDisabled = (script: Script) => {
-    if (script.is_active) return false; // Can always disable
+    if (script.is_active) return false;
     return (
-      !script.schedules.length || // No schedules
-      script.dependencies.some(dep => !dep.installed_version) // Uninstalled deps
+      !script.schedules.length ||
+      script.dependencies.some(dep => !dep.installed_version)
     );
   };
 
@@ -99,9 +129,7 @@ export function ScriptList() {
 
   const handleToggleActive = async (script: Script) => {
     try {
-      // Check if we can enable the script
       if (!script.is_active) {
-        // Can't enable if no schedules
         if (!script.schedules.length) {
           notifications.show({
             title: 'Error',
@@ -111,7 +139,6 @@ export function ScriptList() {
           return;
         }
         
-        // Can't enable if dependencies not installed
         const hasUninstalledDeps = script.dependencies.some(
           (dep: Dependency) => !dep.installed_version
         );
@@ -158,13 +185,27 @@ export function ScriptList() {
           </Button>
         </Group>
 
-        <TextInput
-          placeholder="Search scripts by name or tag..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          leftSection={<IconSearch size={16} />}
-          style={{ maxWidth: '400px' }}
-        />
+        <Group align="flex-start">
+          <TextInput
+            placeholder="Search scripts by name or tag..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            leftSection={<IconSearch size={16} />}
+            style={{ maxWidth: '400px' }}
+          />
+          
+          <SegmentedControl
+            value={filter}
+            onChange={(value) => handleFilterChange(value as FilterType)}
+            data={[
+              { label: 'All', value: 'all' },
+              { label: 'Active', value: 'active' },
+              { label: 'Inactive', value: 'inactive' },
+              { label: 'Failed', value: 'failed' },
+              { label: 'Missing Dependencies', value: 'missing-deps' },
+            ]}
+          />
+        </Group>
 
         <div style={{ 
           display: 'grid',
@@ -282,7 +323,7 @@ export function ScriptList() {
           ))}
           {!isLoading && filteredScripts.length === 0 && (
             <Text c="dimmed" ta="center" style={{ gridColumn: '1 / -1', padding: '2rem' }}>
-              {searchQuery ? 'No scripts found matching your search' : 'No scripts created yet'}
+              {searchQuery || filter !== 'all' ? 'No scripts found matching your criteria' : 'No scripts created yet'}
             </Text>
           )}
         </div>

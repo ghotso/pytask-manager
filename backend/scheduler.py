@@ -108,40 +108,33 @@ class SchedulerService:
         logger.info("Shutting down scheduler service")
         await self.stop()
         
-    async def add_job(self, schedule: Schedule):
-        """Add or update a scheduled job."""
-        if not schedule or not schedule.id:
-            logger.warning("Cannot add job for invalid schedule")
+    async def add_job(self, schedule: Schedule) -> None:
+        """Add a job to the scheduler."""
+        if not schedule.script or not schedule.script.is_active:
             return
             
-        job_id = f"script_{schedule.script_id}_schedule_{schedule.id}"
+        # Check for uninstalled dependencies
+        manager = ScriptManager(schedule.script.id)
+        if await manager.has_uninstalled_dependencies():
+            logger.warning(f"Script {schedule.script.id} has uninstalled dependencies, not scheduling")
+            return
+            
+        job_id = self._get_job_id(schedule)
         
-        # Try to remove existing job if any, ignore if not found
+        # Remove any existing job first
+        await self.remove_job(schedule)
+        
         try:
-            self.scheduler.remove_job(job_id, jobstore='default')
+            self.scheduler.add_job(
+                self._run_script,
+                CronTrigger.from_crontab(schedule.cron_expression),
+                id=job_id,
+                args=[schedule.script.id, schedule.id],
+                replace_existing=True
+            )
+            logger.info(f"Added job {job_id} with cron: {schedule.cron_expression}")
         except Exception as e:
-            logger.debug(f"No existing job found for {job_id}: {str(e)}")
-        
-        # Get script from schedule
-        if not schedule.script:
-            logger.warning(f"Schedule {schedule.id} has no associated script")
-            return
-            
-        if not schedule.script.is_active:
-            logger.info(f"Not adding job for schedule {schedule.id} because script {schedule.script_id} is not active")
-            return
-            
-        logger.info(f"Adding job {job_id} with cron: {schedule.cron_expression}")
-        self.scheduler.add_job(
-            self._execute_script,
-            CronTrigger.from_crontab(schedule.cron_expression),
-            id=job_id,
-            kwargs={
-                'script_id': schedule.script_id,
-                'schedule_id': schedule.id
-            },
-            replace_existing=True
-        )
+            logger.error(f"Failed to add job {job_id}: {e}")
         
     async def remove_job(self, schedule: Schedule):
         """Remove a scheduled job."""
@@ -229,7 +222,7 @@ class SchedulerService:
             if execution_id in self._active_executions:
                 del self._active_executions[execution_id]
             if manager:
-                manager.cleanup()
+                manager.cleanup(remove_environment=False)
     
     async def _run_script_with_output(
         self, 
@@ -270,5 +263,94 @@ class SchedulerService:
                     execution.error_message = str(e)
                     execution.log_output = "".join(output)
                     await session.commit()
+
+    def _get_job_id(self, schedule: Schedule) -> str:
+        """Get the job ID for a schedule."""
+        return f"script_{schedule.script_id}_schedule_{schedule.id}"
+
+    async def _run_script(self, script_id: int, schedule_id: int) -> None:
+        """Run a script as a scheduled job."""
+        logger.info(f"Running scheduled script {script_id} (schedule {schedule_id})")
+        
+        try:
+            async with get_session_context() as session:
+                # Get script and schedule with dependencies
+                result = await session.execute(
+                    select(Script)
+                    .options(selectinload(Script.dependencies))
+                    .where(Script.id == script_id)
+                )
+                script = result.scalar_one_or_none()
+                
+                schedule = await session.get(Schedule, schedule_id)
+                
+                if not script or not schedule:
+                    logger.error(f"Script {script_id} or schedule {schedule_id} not found")
+                    return
+                    
+                # Check for uninstalled dependencies
+                manager = ScriptManager(script_id)
+                if await manager.has_uninstalled_dependencies():
+                    logger.error(f"Script {script_id} has uninstalled dependencies, skipping scheduled execution")
+                    
+                    # Create failure execution record
+                    execution = Execution(
+                        script_id=script_id,
+                        schedule_id=schedule_id,
+                        status=ExecutionStatus.FAILURE,
+                        started_at=datetime.now(timezone.utc),
+                        completed_at=datetime.now(timezone.utc),
+                        error_message="Cannot execute script with uninstalled dependencies"
+                    )
+                    session.add(execution)
+                    await session.commit()
+                    
+                    # Remove the schedule
+                    await self.remove_job(schedule)
+                    return
+                
+                # Create execution record
+                execution = Execution(
+                    script_id=script_id,
+                    schedule_id=schedule_id,
+                    status=ExecutionStatus.PENDING,
+                    started_at=datetime.now(timezone.utc),
+                )
+                session.add(execution)
+                await session.commit()
+                await session.refresh(execution)
+                
+                # Run script with output collection in a new task
+                task = asyncio.create_task(self._run_script_with_output(manager, script, execution.id))
+                self._active_executions[execution.id] = task
+                
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    logger.warning(f"Execution {execution.id} was cancelled")
+                    async with get_session_context() as cancel_session:
+                        execution = await cancel_session.get(Execution, execution.id)
+                        if execution:
+                            execution.status = ExecutionStatus.FAILURE
+                            execution.completed_at = datetime.now(timezone.utc)
+                            execution.error_message = "Execution cancelled"
+                            await cancel_session.commit()
+                except Exception as e:
+                    logger.exception(f"Error during script execution {execution.id}")
+                    async with get_session_context() as error_session:
+                        execution = await error_session.get(Execution, execution.id)
+                        if execution:
+                            execution.status = ExecutionStatus.FAILURE
+                            execution.completed_at = datetime.now(timezone.utc)
+                            execution.error_message = str(e)
+                            await error_session.commit()
+                finally:
+                    if execution.id in self._active_executions:
+                        del self._active_executions[execution.id]
+                    if manager:
+                        manager.cleanup(remove_environment=False)
+            
+        except Exception as e:
+            logger.exception(f"Error running scheduled script {script_id}")
 
 scheduler_service = SchedulerService() 
