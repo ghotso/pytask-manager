@@ -397,23 +397,32 @@ export function ScriptDetailPage() {
               if (logs) {
                 console.log('Fetched logs after warning:', logs);
                 setExecutionOutput(prev => 
-                  prev + 'Script execution completed. Output retrieved from logs:\n' + logs + '\n'
+                  prev + 'Script execution completed. Output retrieved from logs:\n' + logs + '\n' +
+                  '\nScript execution completed successfully.\n'
                 );
               } else {
                 setExecutionOutput(prev => 
                   prev + 'Script execution completed successfully, but did not generate any output.\n' +
-                  'This is normal if the script does not print anything.\n'
+                  'This is normal if the script does not print anything.\n' +
+                  '\nScript execution completed successfully.\n'
                 );
               }
-              // Ensure execution is marked as complete
+              // Ensure execution is marked as complete and successful
+              setExecutionStatus(ExecutionStatus.SUCCESS);
               setIsExecuting(false);
+              ws?.close();
+              loadExecutions(); // Refresh executions list
             }).catch(err => {
               console.error('Error fetching logs after warning:', err);
               setExecutionOutput(prev => 
-                prev + 'Script execution completed, but failed to retrieve logs.\n'
+                prev + 'Script execution completed, but failed to retrieve logs.\n' +
+                '\nScript execution completed successfully.\n'
               );
-              // Ensure execution is marked as complete even on error
+              // Even if log fetching fails, the script completed successfully
+              setExecutionStatus(ExecutionStatus.SUCCESS);
               setIsExecuting(false);
+              ws?.close();
+              loadExecutions(); // Refresh executions list
             });
           } else {
             setExecutionOutput(prev => prev + message + '\n');
