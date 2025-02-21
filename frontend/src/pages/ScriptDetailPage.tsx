@@ -353,48 +353,6 @@ export function ScriptDetailPage() {
           }
         }, 5000);
 
-        // Helper function to complete execution
-        const completeExecution = (status: ExecutionStatus, shouldFetchLogs = true) => {
-          console.log('Completing execution with status:', status);
-          
-          // Immediately update UI state
-          setIsExecuting(false);
-          setExecutionStatus(status);
-
-          const finishExecution = () => {
-            console.log('Finishing execution, updating UI state');
-            loadExecutions();
-            if (ws && ws.readyState === WebSocket.OPEN) {
-              ws.close();
-            }
-          };
-
-          if (shouldFetchLogs) {
-            scriptsApi.getExecutionLogs(scriptId, executionId)
-              .then(logs => {
-                if (logs) {
-                  setExecutionOutput(prev => prev + logs + '\n');
-                }
-                const completionMessage = status === ExecutionStatus.SUCCESS 
-                  ? '\nScript execution completed successfully.'
-                  : '\nScript execution failed.';
-                setExecutionOutput(prev => prev + completionMessage + '\n');
-              })
-              .catch(err => {
-                console.error('Error fetching final logs:', err);
-                const completionMessage = status === ExecutionStatus.SUCCESS 
-                  ? '\nScript execution completed successfully.'
-                  : '\nScript execution failed.';
-                setExecutionOutput(prev => prev + completionMessage + '\n');
-              })
-              .finally(() => {
-                finishExecution();
-              });
-          } else {
-            finishExecution();
-          }
-        };
-
         ws.onopen = () => {
           console.log('WebSocket connected successfully');
           isConnected = true;
@@ -408,20 +366,31 @@ export function ScriptDetailPage() {
           if (message.startsWith('STATUS:')) {
             const status = message.split(':')[1].trim().toUpperCase() as ExecutionStatus;
             console.log('Status update received:', status);
+            setExecutionStatus(status);
             
+            // Immediately complete execution for SUCCESS or FAILURE status
             if (status === ExecutionStatus.SUCCESS || status === ExecutionStatus.FAILURE) {
               console.log('Execution completed with status:', status);
-              completeExecution(status);
-            } else {
-              setExecutionStatus(status);
+              setIsExecuting(false);
+              setExecutionOutput(prev => prev + `\nScript execution ${status.toLowerCase()}.\n`);
+              loadExecutions();
+              if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.close();
+              }
             }
           } else if (message.includes('Warning: Execution completed but output file was not created')) {
             console.log('Received completion warning, marking as success');
+            // Immediately update status and stop execution
+            setExecutionStatus(ExecutionStatus.SUCCESS);
+            setIsExecuting(false);
             setExecutionOutput(prev => 
               prev + 'Script execution completed successfully, but did not generate any output.\n' +
               'This is normal if the script does not print anything.\n'
             );
-            completeExecution(ExecutionStatus.SUCCESS, false);
+            loadExecutions();
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              ws.close();
+            }
           } else {
             setExecutionOutput(prev => prev + message + '\n');
           }
@@ -437,10 +406,16 @@ export function ScriptDetailPage() {
             connectWebSocket();
           } else {
             clearTimeout(connectionTimeout);
-            completeExecution(ExecutionStatus.FAILURE, false);
+            // Ensure execution is marked as complete
+            setIsExecuting(false);
+            setExecutionStatus(ExecutionStatus.FAILURE);
             setExecutionOutput(prev => 
               prev + '\nError: Failed to establish WebSocket connection. Please check execution history for logs.\n'
             );
+            loadExecutions();
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              ws.close();
+            }
           }
         };
 
@@ -448,6 +423,7 @@ export function ScriptDetailPage() {
           console.log('WebSocket closed');
           clearTimeout(connectionTimeout);
           
+          // If we're still executing when the connection closes unexpectedly
           if (isExecuting) {
             console.log('WebSocket closed while still executing, checking final status');
             scriptsApi.listExecutions(scriptId)
@@ -455,15 +431,24 @@ export function ScriptDetailPage() {
                 const execution = executions.find(e => e.id === executionId);
                 if (execution) {
                   console.log('Final execution status:', execution.status);
-                  completeExecution(execution.status as ExecutionStatus);
+                  // Update status and stop execution
+                  setExecutionStatus(execution.status as ExecutionStatus);
+                  setIsExecuting(false);
+                  setExecutionOutput(prev => prev + `\nScript execution ${execution.status.toLowerCase()}.\n`);
                 } else {
                   console.log('No execution found, marking as failed');
-                  completeExecution(ExecutionStatus.FAILURE);
+                  setExecutionStatus(ExecutionStatus.FAILURE);
+                  setIsExecuting(false);
+                  setExecutionOutput(prev => prev + '\nScript execution failed.\n');
                 }
+                loadExecutions();
               })
               .catch(err => {
                 console.error('Error checking final execution status:', err);
-                completeExecution(ExecutionStatus.FAILURE);
+                setExecutionStatus(ExecutionStatus.FAILURE);
+                setIsExecuting(false);
+                setExecutionOutput(prev => prev + '\nError checking execution status. Script execution failed.\n');
+                loadExecutions();
               });
           }
         };
