@@ -363,32 +363,44 @@ export function ScriptDetailPage() {
           const message = event.data;
           console.log('WebSocket message received:', message);
 
+          // Helper function to complete execution
+          const completeExecution = (status: ExecutionStatus, additionalMessage?: string) => {
+            console.log('Completing execution with status:', status);
+            setExecutionStatus(status);
+            setIsExecuting(false);
+            if (additionalMessage) {
+              setExecutionOutput(prev => prev + additionalMessage + '\n');
+            }
+            ws?.close();
+            loadExecutions();
+          };
+
           if (message.startsWith('STATUS:')) {
-            const status = message.split(':')[1].trim().toUpperCase();
+            const status = message.split(':')[1].trim().toUpperCase() as ExecutionStatus;
             console.log('Status update received:', status);
-            setExecutionStatus(status as ExecutionStatus);
+            setExecutionStatus(status);
             
             if (status === ExecutionStatus.SUCCESS || status === ExecutionStatus.FAILURE) {
-              setIsExecuting(false);
-              ws?.close();
-              loadExecutions(); // Refresh executions list
-              
-              // Add completion message based on status
-              const completionMessage = status === ExecutionStatus.SUCCESS 
-                ? '\nScript execution completed successfully.'
-                : '\nScript execution failed.';
-              
-              // Fetch logs directly after completion
+              // Fetch logs and complete execution
               scriptsApi.getExecutionLogs(scriptId, executionId).then(logs => {
+                const completionMessage = status === ExecutionStatus.SUCCESS 
+                  ? '\nScript execution completed successfully.'
+                  : '\nScript execution failed.';
+                
                 if (logs) {
-                  console.log('Fetched logs after completion:', logs);
+                  console.log('Fetched logs after status update:', logs);
                   setExecutionOutput(prev => prev + logs + completionMessage + '\n');
                 } else {
                   setExecutionOutput(prev => prev + completionMessage + '\n');
                 }
+                completeExecution(status);
               }).catch(err => {
-                console.error('Error fetching logs after completion:', err);
+                console.error('Error fetching logs after status update:', err);
+                const completionMessage = status === ExecutionStatus.SUCCESS 
+                  ? '\nScript execution completed successfully.'
+                  : '\nScript execution failed.';
                 setExecutionOutput(prev => prev + completionMessage + '\n');
+                completeExecution(status);
               });
             }
           } else if (message.includes('Warning: Execution completed but output file was not created')) {
@@ -407,22 +419,14 @@ export function ScriptDetailPage() {
                   '\nScript execution completed successfully.\n'
                 );
               }
-              // Ensure execution is marked as complete and successful
-              setExecutionStatus(ExecutionStatus.SUCCESS);
-              setIsExecuting(false);
-              ws?.close();
-              loadExecutions(); // Refresh executions list
+              completeExecution(ExecutionStatus.SUCCESS);
             }).catch(err => {
               console.error('Error fetching logs after warning:', err);
               setExecutionOutput(prev => 
                 prev + 'Script execution completed, but failed to retrieve logs.\n' +
                 '\nScript execution completed successfully.\n'
               );
-              // Even if log fetching fails, the script completed successfully
-              setExecutionStatus(ExecutionStatus.SUCCESS);
-              setIsExecuting(false);
-              ws?.close();
-              loadExecutions(); // Refresh executions list
+              completeExecution(ExecutionStatus.SUCCESS);
             });
           } else {
             setExecutionOutput(prev => prev + message + '\n');
