@@ -356,8 +356,18 @@ export function ScriptDetailPage() {
         // Helper function to complete execution
         const completeExecution = (status: ExecutionStatus, shouldFetchLogs = true) => {
           console.log('Completing execution with status:', status);
-          setExecutionStatus(status);
+          
+          // Immediately update UI state
           setIsExecuting(false);
+          setExecutionStatus(status);
+
+          const finishExecution = () => {
+            console.log('Finishing execution, updating UI state');
+            loadExecutions();
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              ws.close();
+            }
+          };
 
           if (shouldFetchLogs) {
             scriptsApi.getExecutionLogs(scriptId, executionId)
@@ -378,16 +388,10 @@ export function ScriptDetailPage() {
                 setExecutionOutput(prev => prev + completionMessage + '\n');
               })
               .finally(() => {
-                loadExecutions();
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                  ws.close();
-                }
+                finishExecution();
               });
           } else {
-            loadExecutions();
-            if (ws && ws.readyState === WebSocket.OPEN) {
-              ws.close();
-            }
+            finishExecution();
           }
         };
 
