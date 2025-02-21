@@ -41,7 +41,7 @@ on:
 env:
   REGISTRY: ghcr.io
   DEV_IMAGE_NAME: pytask-dev
-  PROD_IMAGE_NAME: ${{ github.repository }}
+  PROD_IMAGE_NAME: pytask-manager
 
 jobs:
   build-and-push:
