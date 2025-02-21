@@ -14,8 +14,6 @@ on:
   push:
     branches:
       - dev
-    tags:
-      - 'v*'
     paths:
       - 'backend/**'
       - 'frontend/**'
@@ -26,6 +24,8 @@ on:
       - 'run.py'
       - '.dockerignore'
   pull_request:
+    types:
+      - closed
     branches:
       - main
     paths:
@@ -50,6 +50,15 @@ jobs:
       contents: read
       packages: write
 
+    # Only run if:
+    # 1. It's a manual workflow dispatch
+    # 2. It's a push to dev branch
+    # 3. It's a merged PR to main branch
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/dev') ||
+      (github.event_name == 'pull_request' && github.event.pull_request.merged == true && github.base_ref == 'main' && github.head_ref == 'dev')
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -66,13 +75,23 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_TOKEN }}
 
-      - name: Set image name based on branch
+      - name: Set image name based on event
         id: image_name
         run: |
-          if [[ ${{ github.event.inputs.branch || github.ref }} == "dev" ]] || [[ ${{ github.event.inputs.branch || github.ref }} == "refs/heads/dev" ]]; then
-            echo "IMAGE_NAME=${{ env.DEV_IMAGE_NAME }}" >> $GITHUB_ENV
-          else
+          if [[ "${{ github.event_name }}" == "pull_request" && "${{ github.base_ref }}" == "main" ]]; then
             echo "IMAGE_NAME=${{ env.PROD_IMAGE_NAME }}" >> $GITHUB_ENV
+            echo "Building production image for merged PR to main"
+          elif [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/dev" ]]; then
+            echo "IMAGE_NAME=${{ env.DEV_IMAGE_NAME }}" >> $GITHUB_ENV
+            echo "Building dev image for push to dev"
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            if [[ "${{ github.event.inputs.branch }}" == "main" ]]; then
+              echo "IMAGE_NAME=${{ env.PROD_IMAGE_NAME }}" >> $GITHUB_ENV
+              echo "Building production image from workflow dispatch"
+            else
+              echo "IMAGE_NAME=${{ env.DEV_IMAGE_NAME }}" >> $GITHUB_ENV
+              echo "Building dev image from workflow dispatch"
+            fi
           fi
 
       - name: Build and push Docker image
@@ -80,13 +99,13 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          push: ${{ github.event_name != 'pull_request' }}
+          push: true
           tags: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Send Discord Notification
-        if: success() && github.event_name != 'pull_request'
+        if: success()
         uses: Ilshidur/action-discord@master
         env:
           DISCORD_WEBHOOK: ${{ secrets.DC_WEBHOOK }}
@@ -99,5 +118,5 @@ jobs:
             Repository: `${{ github.repository }}`
             Branch: `${{ github.event.inputs.branch || github.ref_name }}`
             Commit: [`${{ github.sha }}`](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }})
-            
-            Image: `${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest` 
+            Image: `${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest`
+            Type: `${{ env.IMAGE_NAME == env.DEV_IMAGE_NAME && 'Development' || 'Production' }}` 
