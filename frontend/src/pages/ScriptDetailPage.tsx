@@ -357,7 +357,6 @@ export function ScriptDetailPage() {
           console.log('WebSocket connected successfully');
           isConnected = true;
           clearTimeout(connectionTimeout);
-          setExecutionOutput(prev => prev + 'Connected to execution stream...\n');
         };
 
         ws.onmessage = (event) => {
@@ -367,61 +366,69 @@ export function ScriptDetailPage() {
           if (message.startsWith('STATUS:')) {
             const status = message.split(':')[1].trim().toUpperCase() as ExecutionStatus;
             console.log('Status update received:', status);
+            setExecutionStatus(status);
             
             if (status === ExecutionStatus.SUCCESS || status === ExecutionStatus.FAILURE) {
               console.log('Execution completed with status:', status);
-              setExecutionStatus(status);
               setIsExecuting(false);
               
-              // Fetch final logs
-              scriptsApi.getExecutionLogs(scriptId, executionId).then(logs => {
-                if (logs) {
-                  setExecutionOutput(prev => prev + logs + '\n');
-                }
-                const completionMessage = status === ExecutionStatus.SUCCESS 
-                  ? '\nScript execution completed successfully.'
-                  : '\nScript execution failed.';
-                setExecutionOutput(prev => prev + completionMessage + '\n');
-              }).catch(err => {
-                console.error('Error fetching final logs:', err);
-                const completionMessage = status === ExecutionStatus.SUCCESS 
-                  ? '\nScript execution completed successfully.'
-                  : '\nScript execution failed.';
-                setExecutionOutput(prev => prev + completionMessage + '\n');
-              }).finally(() => {
-                loadExecutions();
-                ws?.close();
-              });
+              scriptsApi.getExecutionLogs(scriptId, executionId)
+                .then(logs => {
+                  if (logs) {
+                    setExecutionOutput(prev => prev + logs + '\n');
+                  }
+                  const completionMessage = status === ExecutionStatus.SUCCESS 
+                    ? '\nScript execution completed successfully.'
+                    : '\nScript execution failed.';
+                  setExecutionOutput(prev => prev + completionMessage + '\n');
+                })
+                .catch(err => {
+                  console.error('Error fetching final logs:', err);
+                  const completionMessage = status === ExecutionStatus.SUCCESS 
+                    ? '\nScript execution completed successfully.'
+                    : '\nScript execution failed.';
+                  setExecutionOutput(prev => prev + completionMessage + '\n');
+                })
+                .finally(() => {
+                  loadExecutions();
+                  if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.close();
+                  }
+                });
             }
           } else if (message.includes('Warning: Execution completed but output file was not created')) {
             console.log('Received completion warning, marking as success');
             setExecutionStatus(ExecutionStatus.SUCCESS);
             setIsExecuting(false);
             
-            // Try to fetch any available logs
-            scriptsApi.getExecutionLogs(scriptId, executionId).then(logs => {
-              if (logs) {
-                setExecutionOutput(prev => 
-                  prev + 'Script execution completed. Output retrieved from logs:\n' + logs + '\n' +
-                  '\nScript execution completed successfully.\n'
-                );
-              } else {
+            scriptsApi.getExecutionLogs(scriptId, executionId)
+              .then(logs => {
+                if (logs) {
+                  setExecutionOutput(prev => 
+                    prev + 'Script execution completed. Output retrieved from logs:\n' + logs + '\n' +
+                    '\nScript execution completed successfully.\n'
+                  );
+                } else {
+                  setExecutionOutput(prev => 
+                    prev + 'Script execution completed successfully, but did not generate any output.\n' +
+                    'This is normal if the script does not print anything.\n' +
+                    '\nScript execution completed successfully.\n'
+                  );
+                }
+              })
+              .catch(err => {
+                console.error('Error fetching logs after warning:', err);
                 setExecutionOutput(prev => 
                   prev + 'Script execution completed successfully, but did not generate any output.\n' +
-                  'This is normal if the script does not print anything.\n' +
                   '\nScript execution completed successfully.\n'
                 );
-              }
-            }).catch(err => {
-              console.error('Error fetching logs after warning:', err);
-              setExecutionOutput(prev => 
-                prev + 'Script execution completed successfully, but did not generate any output.\n' +
-                '\nScript execution completed successfully.\n'
-              );
-            }).finally(() => {
-              loadExecutions();
-              ws?.close();
-            });
+              })
+              .finally(() => {
+                loadExecutions();
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                  ws.close();
+                }
+              });
           } else {
             setExecutionOutput(prev => prev + message + '\n');
           }
@@ -442,7 +449,9 @@ export function ScriptDetailPage() {
             setExecutionOutput(prev => 
               prev + '\nError: Failed to establish WebSocket connection. Please check execution history for logs.\n'
             );
-            ws?.close();
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              ws.close();
+            }
           }
         };
 
@@ -450,30 +459,31 @@ export function ScriptDetailPage() {
           console.log('WebSocket closed');
           clearTimeout(connectionTimeout);
           
-          // If we're still executing when the connection closes unexpectedly
           if (isExecuting) {
             console.log('WebSocket closed while still executing, checking final status');
-            scriptsApi.listExecutions(scriptId).then(async executions => {
-              const execution = executions.find(e => e.id === executionId);
-              if (execution) {
-                console.log('Final execution status:', execution.status);
-                setExecutionStatus(execution.status);
-                setIsExecuting(false);
-                
-                try {
-                  const logs = await scriptsApi.getExecutionLogs(scriptId, executionId);
-                  if (logs) {
-                    setExecutionOutput(prev => prev + logs + '\n');
+            scriptsApi.listExecutions(scriptId)
+              .then(async executions => {
+                const execution = executions.find(e => e.id === executionId);
+                if (execution) {
+                  console.log('Final execution status:', execution.status);
+                  setExecutionStatus(execution.status);
+                  setIsExecuting(false);
+                  
+                  try {
+                    const logs = await scriptsApi.getExecutionLogs(scriptId, executionId);
+                    if (logs) {
+                      setExecutionOutput(prev => prev + logs + '\n');
+                    }
+                    setExecutionOutput(prev => prev + '\nScript execution completed.\n');
+                  } catch (err) {
+                    console.error('Error fetching final logs:', err);
                   }
-                  setExecutionOutput(prev => prev + '\nScript execution completed.\n');
-                } catch (err) {
-                  console.error('Error fetching final logs:', err);
                 }
-              }
-            }).catch(err => {
-              console.error('Error checking final execution status:', err);
-              setIsExecuting(false);
-            });
+              })
+              .catch(err => {
+                console.error('Error checking final execution status:', err);
+                setIsExecuting(false);
+              });
           }
         };
       };
