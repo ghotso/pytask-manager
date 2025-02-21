@@ -353,6 +353,44 @@ export function ScriptDetailPage() {
           }
         }, 5000);
 
+        // Helper function to complete execution
+        const completeExecution = (status: ExecutionStatus, shouldFetchLogs = true) => {
+          console.log('Completing execution with status:', status);
+          setExecutionStatus(status);
+          setIsExecuting(false);
+
+          if (shouldFetchLogs) {
+            scriptsApi.getExecutionLogs(scriptId, executionId)
+              .then(logs => {
+                if (logs) {
+                  setExecutionOutput(prev => prev + logs + '\n');
+                }
+                const completionMessage = status === ExecutionStatus.SUCCESS 
+                  ? '\nScript execution completed successfully.'
+                  : '\nScript execution failed.';
+                setExecutionOutput(prev => prev + completionMessage + '\n');
+              })
+              .catch(err => {
+                console.error('Error fetching final logs:', err);
+                const completionMessage = status === ExecutionStatus.SUCCESS 
+                  ? '\nScript execution completed successfully.'
+                  : '\nScript execution failed.';
+                setExecutionOutput(prev => prev + completionMessage + '\n');
+              })
+              .finally(() => {
+                loadExecutions();
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                  ws.close();
+                }
+              });
+          } else {
+            loadExecutions();
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              ws.close();
+            }
+          }
+        };
+
         ws.onopen = () => {
           console.log('WebSocket connected successfully');
           isConnected = true;
@@ -366,69 +404,20 @@ export function ScriptDetailPage() {
           if (message.startsWith('STATUS:')) {
             const status = message.split(':')[1].trim().toUpperCase() as ExecutionStatus;
             console.log('Status update received:', status);
-            setExecutionStatus(status);
             
             if (status === ExecutionStatus.SUCCESS || status === ExecutionStatus.FAILURE) {
               console.log('Execution completed with status:', status);
-              setIsExecuting(false);
-              
-              scriptsApi.getExecutionLogs(scriptId, executionId)
-                .then(logs => {
-                  if (logs) {
-                    setExecutionOutput(prev => prev + logs + '\n');
-                  }
-                  const completionMessage = status === ExecutionStatus.SUCCESS 
-                    ? '\nScript execution completed successfully.'
-                    : '\nScript execution failed.';
-                  setExecutionOutput(prev => prev + completionMessage + '\n');
-                })
-                .catch(err => {
-                  console.error('Error fetching final logs:', err);
-                  const completionMessage = status === ExecutionStatus.SUCCESS 
-                    ? '\nScript execution completed successfully.'
-                    : '\nScript execution failed.';
-                  setExecutionOutput(prev => prev + completionMessage + '\n');
-                })
-                .finally(() => {
-                  loadExecutions();
-                  if (ws && ws.readyState === WebSocket.OPEN) {
-                    ws.close();
-                  }
-                });
+              completeExecution(status);
+            } else {
+              setExecutionStatus(status);
             }
           } else if (message.includes('Warning: Execution completed but output file was not created')) {
             console.log('Received completion warning, marking as success');
-            setExecutionStatus(ExecutionStatus.SUCCESS);
-            setIsExecuting(false);
-            
-            scriptsApi.getExecutionLogs(scriptId, executionId)
-              .then(logs => {
-                if (logs) {
-                  setExecutionOutput(prev => 
-                    prev + 'Script execution completed. Output retrieved from logs:\n' + logs + '\n' +
-                    '\nScript execution completed successfully.\n'
-                  );
-                } else {
-                  setExecutionOutput(prev => 
-                    prev + 'Script execution completed successfully, but did not generate any output.\n' +
-                    'This is normal if the script does not print anything.\n' +
-                    '\nScript execution completed successfully.\n'
-                  );
-                }
-              })
-              .catch(err => {
-                console.error('Error fetching logs after warning:', err);
-                setExecutionOutput(prev => 
-                  prev + 'Script execution completed successfully, but did not generate any output.\n' +
-                  '\nScript execution completed successfully.\n'
-                );
-              })
-              .finally(() => {
-                loadExecutions();
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                  ws.close();
-                }
-              });
+            setExecutionOutput(prev => 
+              prev + 'Script execution completed successfully, but did not generate any output.\n' +
+              'This is normal if the script does not print anything.\n'
+            );
+            completeExecution(ExecutionStatus.SUCCESS, false);
           } else {
             setExecutionOutput(prev => prev + message + '\n');
           }
@@ -444,14 +433,10 @@ export function ScriptDetailPage() {
             connectWebSocket();
           } else {
             clearTimeout(connectionTimeout);
-            setIsExecuting(false);
-            setExecutionStatus(ExecutionStatus.FAILURE);
+            completeExecution(ExecutionStatus.FAILURE, false);
             setExecutionOutput(prev => 
               prev + '\nError: Failed to establish WebSocket connection. Please check execution history for logs.\n'
             );
-            if (ws && ws.readyState === WebSocket.OPEN) {
-              ws.close();
-            }
           }
         };
 
@@ -466,23 +451,15 @@ export function ScriptDetailPage() {
                 const execution = executions.find(e => e.id === executionId);
                 if (execution) {
                   console.log('Final execution status:', execution.status);
-                  setExecutionStatus(execution.status);
-                  setIsExecuting(false);
-                  
-                  try {
-                    const logs = await scriptsApi.getExecutionLogs(scriptId, executionId);
-                    if (logs) {
-                      setExecutionOutput(prev => prev + logs + '\n');
-                    }
-                    setExecutionOutput(prev => prev + '\nScript execution completed.\n');
-                  } catch (err) {
-                    console.error('Error fetching final logs:', err);
-                  }
+                  completeExecution(execution.status as ExecutionStatus);
+                } else {
+                  console.log('No execution found, marking as failed');
+                  completeExecution(ExecutionStatus.FAILURE);
                 }
               })
               .catch(err => {
                 console.error('Error checking final execution status:', err);
-                setIsExecuting(false);
+                completeExecution(ExecutionStatus.FAILURE);
               });
           }
         };
