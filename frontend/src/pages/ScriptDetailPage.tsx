@@ -353,6 +353,34 @@ export function ScriptDetailPage() {
           }
         }, 5000);
 
+        // Add execution safety timeout
+        const executionTimeout = setTimeout(async () => {
+          console.log('Execution safety timeout triggered, checking status');
+          if (isExecuting) {
+            try {
+              const executions = await scriptsApi.listExecutions(scriptId);
+              const execution = executions.find(e => e.id === executionId);
+              console.log('Safety check - Found execution:', execution);
+              
+              if (execution) {
+                console.log('Safety check - Updating status to:', execution.status);
+                setExecutionStatus(execution.status as ExecutionStatus);
+                setIsExecuting(false);
+                setExecutionOutput(prev => 
+                  prev + '\nScript execution completed (status updated by safety check).\n'
+                );
+                loadExecutions();
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                  console.log('Closing WebSocket connection');
+                  ws.close();
+                }
+              }
+            } catch (err) {
+              console.error('Safety check - Error fetching execution status:', err);
+            }
+          }
+        }, 10000); // Check after 10 seconds
+
         ws.onopen = () => {
           console.log('WebSocket connected successfully');
           isConnected = true;
@@ -368,29 +396,37 @@ export function ScriptDetailPage() {
             console.log('Status update received:', status);
             setExecutionStatus(status);
             
-            // Immediately complete execution for SUCCESS or FAILURE status
             if (status === ExecutionStatus.SUCCESS || status === ExecutionStatus.FAILURE) {
               console.log('Execution completed with status:', status);
-              setIsExecuting(false);
-              setExecutionOutput(prev => prev + `\nScript execution ${status.toLowerCase()}.\n`);
-              loadExecutions();
-              if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.close();
-              }
+              // Force state updates
+              Promise.resolve().then(() => {
+                console.log('Updating execution state - Setting isExecuting to false');
+                setIsExecuting(false);
+                setExecutionOutput(prev => prev + `\nScript execution ${status.toLowerCase()}.\n`);
+                loadExecutions();
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                  console.log('Closing WebSocket connection');
+                  ws.close();
+                }
+              });
             }
           } else if (message.includes('Warning: Execution completed but output file was not created')) {
             console.log('Received completion warning, marking as success');
-            // Immediately update status and stop execution
-            setExecutionStatus(ExecutionStatus.SUCCESS);
-            setIsExecuting(false);
-            setExecutionOutput(prev => 
-              prev + 'Script execution completed successfully, but did not generate any output.\n' +
-              'This is normal if the script does not print anything.\n'
-            );
-            loadExecutions();
-            if (ws && ws.readyState === WebSocket.OPEN) {
-              ws.close();
-            }
+            // Force state updates
+            Promise.resolve().then(() => {
+              console.log('Updating execution state - Setting isExecuting to false');
+              setExecutionStatus(ExecutionStatus.SUCCESS);
+              setIsExecuting(false);
+              setExecutionOutput(prev => 
+                prev + 'Script execution completed successfully, but did not generate any output.\n' +
+                'This is normal if the script does not print anything.\n'
+              );
+              loadExecutions();
+              if (ws && ws.readyState === WebSocket.OPEN) {
+                console.log('Closing WebSocket connection');
+                ws.close();
+              }
+            });
           } else {
             setExecutionOutput(prev => prev + message + '\n');
           }
@@ -406,7 +442,8 @@ export function ScriptDetailPage() {
             connectWebSocket();
           } else {
             clearTimeout(connectionTimeout);
-            // Ensure execution is marked as complete
+            clearTimeout(executionTimeout);
+            console.log('Updating execution state after error - Setting isExecuting to false');
             setIsExecuting(false);
             setExecutionStatus(ExecutionStatus.FAILURE);
             setExecutionOutput(prev => 
@@ -422,8 +459,8 @@ export function ScriptDetailPage() {
         ws.onclose = () => {
           console.log('WebSocket closed');
           clearTimeout(connectionTimeout);
+          clearTimeout(executionTimeout);
           
-          // If we're still executing when the connection closes unexpectedly
           if (isExecuting) {
             console.log('WebSocket closed while still executing, checking final status');
             scriptsApi.listExecutions(scriptId)
@@ -431,7 +468,7 @@ export function ScriptDetailPage() {
                 const execution = executions.find(e => e.id === executionId);
                 if (execution) {
                   console.log('Final execution status:', execution.status);
-                  // Update status and stop execution
+                  console.log('Updating execution state after close - Setting isExecuting to false');
                   setExecutionStatus(execution.status as ExecutionStatus);
                   setIsExecuting(false);
                   setExecutionOutput(prev => prev + `\nScript execution ${execution.status.toLowerCase()}.\n`);
@@ -450,6 +487,14 @@ export function ScriptDetailPage() {
                 setExecutionOutput(prev => prev + '\nError checking execution status. Script execution failed.\n');
                 loadExecutions();
               });
+          }
+        };
+
+        return () => {
+          clearTimeout(connectionTimeout);
+          clearTimeout(executionTimeout);
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.close();
           }
         };
       };
