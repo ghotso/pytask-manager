@@ -671,13 +671,16 @@ export function ScriptDetailPage() {
             </Box>
           </Box>
           <Group>
-            <Group gap="xs" style={{ height: '36px' }}>
+            <Group gap="xs" style={{ height: '36px', display: 'flex', alignItems: 'center' }}>
               <Switch
                 checked={isActive}
                 onChange={handleToggleActive}
                 disabled={isToggleDisabled()}
                 label={isActive ? 'Active' : 'Inactive'}
                 style={{
+                  height: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
                   padding: '4px 12px',
                   borderRadius: '8px',
                   backgroundColor: isToggleDisabled() 
@@ -991,10 +994,11 @@ export function ScriptDetailPage() {
                         key={index}
                         style={{
                           display: 'block',
-                          whiteSpace: 'pre',
+                          whiteSpace: 'pre-line',
                           color: '#d4d4d4',
                           padding: '2px 8px',
-                          lineHeight: '1.5'
+                          lineHeight: '1.5',
+                          overflowWrap: 'break-word'
                         }}
                       >
                         {line}
@@ -1090,10 +1094,11 @@ export function ScriptDetailPage() {
                         key={index}
                         style={{
                           display: 'block',
-                          whiteSpace: 'pre',
+                          whiteSpace: 'pre-line',
                           color: '#d4d4d4',
                           padding: '2px 8px',
-                          lineHeight: '1.5'
+                          lineHeight: '1.5',
+                          overflowWrap: 'break-word'
                         }}
                       >
                         {line.replace(/^ERROR: /, '')}

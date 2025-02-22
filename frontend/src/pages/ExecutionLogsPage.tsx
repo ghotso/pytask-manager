@@ -365,10 +365,11 @@ export function ExecutionLogsPage() {
                         key={index}
                         style={{
                           display: 'block',
-                          whiteSpace: 'pre',
+                          whiteSpace: 'pre-line',
                           color: '#d4d4d4',
                           padding: '2px 8px',
                           lineHeight: '1.5',
+                          overflowWrap: 'break-word'
                         }}
                       >
                         {line.replace(/^ERROR: /, '')}
