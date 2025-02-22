@@ -234,7 +234,7 @@ export function ScriptList() {
             <Card
               key={script.id}
               withBorder
-              padding="xl"
+              padding="md"
               style={{ 
                 textDecoration: 'none', 
                 color: 'inherit',
@@ -248,19 +248,18 @@ export function ScriptList() {
                 }
               }}
             >
-              <Stack gap="md">
+              <Stack gap="sm">
                 <Group justify="space-between" align="flex-start">
                   <Text 
                     component={Link}
                     to={`/scripts/${script.id}`}
                     fw={500} 
-                    size="xl" 
+                    size="lg" 
                     lineClamp={1}
                     style={{ 
                       textDecoration: 'none',
                       color: 'inherit',
                       flex: 1,
-                      fontSize: '1.5rem'
                     }}
                   >
                     {script.name}
@@ -286,8 +285,7 @@ export function ScriptList() {
                     style={{ 
                       textDecoration: 'none',
                       color: 'inherit',
-                      fontSize: '1.1rem',
-                      letterSpacing: '0.3px'
+                      fontSize: '0.9rem',
                     }}
                   >
                     {script.description}
@@ -295,11 +293,11 @@ export function ScriptList() {
                 )}
 
                 {script.tags.length > 0 && (
-                  <Group gap="xs" mt="xs">
+                  <Group gap="xs">
                     {script.tags.map((tag) => (
                       <Badge
                         key={tag.name}
-                        size="lg"
+                        size="sm"
                         variant="light"
                         style={{
                           backgroundColor: 'rgba(59, 130, 246, 0.1)',
@@ -312,16 +310,16 @@ export function ScriptList() {
                   </Group>
                 )}
 
-                <Group mt="auto" pt="md" style={{ borderTop: '1px solid rgba(44, 46, 51, 0.5)' }}>
+                <Group mt="xs" pt="xs" style={{ borderTop: '1px solid rgba(44, 46, 51, 0.5)' }}>
                   <Group gap="xs">
                     {script.dependencies.some(dep => !dep.installed_version) && (
                       <Tooltip label="Some dependencies are not installed">
                         <Badge 
-                          size="lg" 
+                          size="sm" 
                           color="yellow" 
                           leftSection={
                             <IconAlertTriangle 
-                              size={16} 
+                              size={14} 
                               style={{ 
                                 marginRight: 4,
                                 filter: 'drop-shadow(0 0 8px rgba(234, 179, 8, 0.4))'
@@ -339,7 +337,7 @@ export function ScriptList() {
                     )}
                     {script.schedules.length > 0 && (
                       <Badge 
-                        size="lg" 
+                        size="sm" 
                         color="blue"
                         style={{
                           backgroundColor: 'rgba(59, 130, 246, 0.1)',
@@ -352,12 +350,12 @@ export function ScriptList() {
                     {script.last_execution && (
                       <Tooltip label={`Last execution: ${script.last_execution.status}`}>
                         <Badge 
-                          size="lg" 
+                          size="sm" 
                           color={script.last_execution.status === ExecutionStatus.SUCCESS ? 'green' : 'red'}
                           leftSection={
                             script.last_execution.status === ExecutionStatus.SUCCESS
-                              ? <IconCheck size={16} style={{ filter: 'drop-shadow(0 0 8px rgba(34, 197, 94, 0.4))' }} />
-                              : <IconX size={16} style={{ filter: 'drop-shadow(0 0 8px rgba(239, 68, 68, 0.4))' }} />
+                              ? <IconCheck size={14} style={{ filter: 'drop-shadow(0 0 8px rgba(34, 197, 94, 0.4))' }} />
+                              : <IconX size={14} style={{ filter: 'drop-shadow(0 0 8px rgba(239, 68, 68, 0.4))' }} />
                           }
                           style={{
                             backgroundColor: script.last_execution.status === ExecutionStatus.SUCCESS 

@@ -1,6 +1,6 @@
 import { ReactElement } from 'react';
-import { Stack, Table, Text } from '@mantine/core';
-import { ListInput } from './common/ListInput';
+import { Stack, Table, Badge, Button, TextInput, Group } from '@mantine/core';
+import { IconTrash } from '@tabler/icons-react';
 import { Dependency } from '../types';
 
 interface DependencyInputProps {
@@ -18,7 +18,9 @@ export function DependencyInput({ value, onChange }: DependencyInputProps): Reac
     return !!(atVersionMatch || comparisonVersionMatch || simplePackageMatch);
   };
 
-  const createDependency = (input: string): Dependency => {
+  const createDependency = (input: string): Dependency | null => {
+    if (!validateDependency(input)) return null;
+
     let packageName = input;
     let versionSpec = '*';  // Default to latest version
     
@@ -40,45 +42,163 @@ export function DependencyInput({ value, onChange }: DependencyInputProps): Reac
     };
   };
 
+  const handleAddDependency = (input: string) => {
+    const newDep = createDependency(input);
+    if (newDep && !value.some(dep => dep.package_name === newDep.package_name)) {
+      onChange([...value, newDep]);
+    }
+  };
+
+  const handleRemoveDependency = (packageName: string) => {
+    onChange(value.filter(dep => dep.package_name !== packageName));
+  };
+
   return (
     <Stack gap="md">
-      <ListInput<Dependency>
-        value={value}
-        onChange={onChange}
-        createItem={createDependency}
-        getItemLabel={(dep) => `${dep.package_name}${dep.version_spec === '*' ? '' : '@' + dep.version_spec}`}
-        placeholder="Enter package name and version (e.g. requests>=2.0.0 or requests@2.0.0)"
-        validate={validateDependency}
-      />
+      <Group>
+        <TextInput
+          placeholder="Enter package name and version (e.g. requests>=2.0.0 or requests@2.0.0)"
+          style={{ flex: 1 }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              handleAddDependency(e.currentTarget.value);
+              e.currentTarget.value = '';
+            }
+          }}
+        />
+      </Group>
 
-      {value.length > 0 && (
-        <Table>
-          <Table.Thead>
-            <Table.Tr>
-              <Table.Th>Package Name</Table.Th>
-              <Table.Th>Version</Table.Th>
-              <Table.Th>Status</Table.Th>
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {value.map((dep) => (
-              <Table.Tr key={dep.package_name}>
-                <Table.Td>
-                  <Text>{dep.package_name}</Text>
-                </Table.Td>
-                <Table.Td>
-                  <Text>{dep.version_spec || 'latest'}</Text>
-                </Table.Td>
-                <Table.Td>
-                  <Text c={dep.installed_version ? 'green' : 'yellow'}>
-                    {dep.installed_version ? `Installed (${dep.installed_version})` : 'Not Installed'}
-                  </Text>
-                </Table.Td>
-              </Table.Tr>
-            ))}
-          </Table.Tbody>
-        </Table>
-      )}
+      <Table
+        withTableBorder
+        highlightOnHover
+        style={{ 
+          minWidth: '600px', 
+          width: '100%',
+          backgroundColor: '#1A1B1E'
+        }}
+      >
+        <colgroup>
+          <col style={{ width: '35%' }} />
+          <col style={{ width: '25%' }} />
+          <col style={{ width: '30%' }} />
+          <col style={{ width: '10%' }} />
+        </colgroup>
+        <thead>
+          <tr style={{ backgroundColor: '#141517' }}>
+            <th style={{ 
+              padding: '12px 16px',
+              color: '#C1C2C5',
+              fontWeight: 600,
+              fontSize: '0.9rem',
+              textAlign: 'left',
+              borderBottom: '1px solid #2C2E33',
+              backgroundColor: '#141517'
+            }}>Package</th>
+            <th style={{ 
+              padding: '12px 16px',
+              color: '#C1C2C5',
+              fontWeight: 600,
+              fontSize: '0.9rem',
+              textAlign: 'left',
+              borderBottom: '1px solid #2C2E33',
+              backgroundColor: '#141517'
+            }}>Version</th>
+            <th style={{ 
+              padding: '12px 16px',
+              color: '#C1C2C5',
+              fontWeight: 600,
+              fontSize: '0.9rem',
+              textAlign: 'left',
+              borderBottom: '1px solid #2C2E33',
+              backgroundColor: '#141517'
+            }}>Status</th>
+            <th style={{ 
+              padding: '12px 16px',
+              color: '#C1C2C5',
+              fontWeight: 600,
+              fontSize: '0.9rem',
+              textAlign: 'center',
+              borderBottom: '1px solid #2C2E33',
+              backgroundColor: '#141517'
+            }}>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {value.map((dep) => (
+            <tr key={`${dep.package_name}-${dep.version_spec}`} style={{ backgroundColor: '#1A1B1E' }}>
+              <td style={{ 
+                padding: '12px 16px',
+                color: '#C1C2C5',
+                borderBottom: '1px solid #2C2E33',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap'
+              }}>
+                {dep.package_name}
+              </td>
+              <td style={{ 
+                padding: '12px 16px',
+                color: '#C1C2C5',
+                borderBottom: '1px solid #2C2E33',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap'
+              }}>
+                {dep.version_spec || 'latest'}
+              </td>
+              <td style={{ 
+                padding: '12px 16px',
+                borderBottom: '1px solid #2C2E33',
+                textAlign: 'left'
+              }}>
+                <Badge
+                  color={dep.installed_version ? 'green' : 'yellow'}
+                  variant="filled"
+                  size="sm"
+                  style={{ 
+                    minWidth: '100px', 
+                    textAlign: 'center',
+                    display: 'inline-block'
+                  }}
+                >
+                  {dep.installed_version ? `Installed (${dep.installed_version})` : 'Not Installed'}
+                </Badge>
+              </td>
+              <td style={{ 
+                padding: '12px 16px',
+                borderBottom: '1px solid #2C2E33',
+                textAlign: 'center'
+              }}>
+                <Button
+                  variant="subtle"
+                  color="red"
+                  size="sm"
+                  p={0}
+                  onClick={() => handleRemoveDependency(dep.package_name)}
+                  style={{ minWidth: 'unset' }}
+                >
+                  <IconTrash size={18} />
+                </Button>
+              </td>
+            </tr>
+          ))}
+          {value.length === 0 && (
+            <tr style={{ backgroundColor: '#1A1B1E' }}>
+              <td 
+                colSpan={4} 
+                style={{ 
+                  padding: '12px 16px',
+                  color: '#666',
+                  textAlign: 'center',
+                  borderBottom: '1px solid #2C2E33'
+                }}
+              >
+                No dependencies defined
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </Table>
     </Stack>
   );
 } 

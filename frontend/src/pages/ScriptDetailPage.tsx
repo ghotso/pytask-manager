@@ -959,20 +959,20 @@ export function ScriptDetailPage() {
 
               <div style={{ 
                 display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))',
                 gap: '1rem'
               }}>
                 {executions.slice(0, 10).map((execution) => (
                   <Card
                     key={execution.id}
                     withBorder
-                    padding="lg"
+                    padding="md"
                     style={{
                       backgroundColor: 
-                        execution.status === ExecutionStatus.SUCCESS ? 'rgba(34, 197, 94, 0.1)' :
-                        execution.status === ExecutionStatus.RUNNING ? 'rgba(59, 130, 246, 0.1)' :
-                        execution.status === ExecutionStatus.PENDING ? 'rgba(234, 179, 8, 0.1)' :
-                        'rgba(239, 68, 68, 0.1)',
+                        execution.status === ExecutionStatus.SUCCESS ? 'rgba(34, 197, 94, 0.05)' :
+                        execution.status === ExecutionStatus.RUNNING ? 'rgba(59, 130, 246, 0.05)' :
+                        execution.status === ExecutionStatus.PENDING ? 'rgba(234, 179, 8, 0.05)' :
+                        'rgba(239, 68, 68, 0.05)',
                       borderColor: 
                         execution.status === ExecutionStatus.SUCCESS ? 'rgba(34, 197, 94, 0.2)' :
                         execution.status === ExecutionStatus.RUNNING ? 'rgba(59, 130, 246, 0.2)' :
@@ -983,77 +983,75 @@ export function ScriptDetailPage() {
                       '&:hover': {
                         transform: 'translateY(-4px)',
                         backgroundColor: 
-                          execution.status === ExecutionStatus.SUCCESS ? 'rgba(34, 197, 94, 0.15)' :
-                          execution.status === ExecutionStatus.RUNNING ? 'rgba(59, 130, 246, 0.15)' :
-                          execution.status === ExecutionStatus.PENDING ? 'rgba(234, 179, 8, 0.15)' :
-                          'rgba(239, 68, 68, 0.15)',
-                        borderColor: 
-                          execution.status === ExecutionStatus.SUCCESS ? 'rgba(34, 197, 94, 0.3)' :
-                          execution.status === ExecutionStatus.RUNNING ? 'rgba(59, 130, 246, 0.3)' :
-                          execution.status === ExecutionStatus.PENDING ? 'rgba(234, 179, 8, 0.3)' :
-                          'rgba(239, 68, 68, 0.3)',
+                          execution.status === ExecutionStatus.SUCCESS ? 'rgba(34, 197, 94, 0.1)' :
+                          execution.status === ExecutionStatus.RUNNING ? 'rgba(59, 130, 246, 0.1)' :
+                          execution.status === ExecutionStatus.PENDING ? 'rgba(234, 179, 8, 0.1)' :
+                          'rgba(239, 68, 68, 0.1)',
                       }
                     }}
                     onClick={() => handleViewLogs(execution)}
                   >
-                    <Stack gap="md">
-                      <Group justify="space-between">
-                        <Badge
-                          size="lg"
-                          color={
-                            execution.status === ExecutionStatus.SUCCESS ? 'green' :
-                            execution.status === ExecutionStatus.RUNNING ? 'blue' :
-                            execution.status === ExecutionStatus.PENDING ? 'yellow' :
-                            'red'
-                          }
-                          leftSection={
-                            execution.status === ExecutionStatus.SUCCESS ? (
-                              <IconCheck size={16} style={{ filter: 'drop-shadow(0 0 8px rgba(34, 197, 94, 0.4))' }} />
-                            ) : execution.status === ExecutionStatus.RUNNING ? (
-                              <IconLoader2 size={16} className="rotating" style={{ filter: 'drop-shadow(0 0 8px rgba(59, 130, 246, 0.4))' }} />
-                            ) : execution.status === ExecutionStatus.PENDING ? (
-                              <IconClock size={16} style={{ filter: 'drop-shadow(0 0 8px rgba(234, 179, 8, 0.4))' }} />
-                            ) : (
-                              <IconX size={16} style={{ filter: 'drop-shadow(0 0 8px rgba(239, 68, 68, 0.4))' }} />
-                            )
-                          }
-                          style={{
-                            backgroundColor: 
-                              execution.status === ExecutionStatus.SUCCESS ? 'rgba(34, 197, 94, 0.1)' :
-                              execution.status === ExecutionStatus.RUNNING ? 'rgba(59, 130, 246, 0.1)' :
-                              execution.status === ExecutionStatus.PENDING ? 'rgba(234, 179, 8, 0.1)' :
-                              'rgba(239, 68, 68, 0.1)',
-                            border: 
-                              execution.status === ExecutionStatus.SUCCESS ? '1px solid rgba(34, 197, 94, 0.2)' :
-                              execution.status === ExecutionStatus.RUNNING ? '1px solid rgba(59, 130, 246, 0.2)' :
-                              execution.status === ExecutionStatus.PENDING ? '1px solid rgba(234, 179, 8, 0.2)' :
-                              '1px solid rgba(239, 68, 68, 0.2)',
-                          }}
-                        >
+                    <Stack gap="sm">
+                      <Group gap="xs">
+                        {execution.status === ExecutionStatus.SUCCESS ? (
+                          <IconCheck 
+                            size={18} 
+                            style={{ 
+                              color: 'var(--mantine-color-green-filled)',
+                              filter: 'drop-shadow(0 0 8px rgba(34, 197, 94, 0.4))'
+                            }} 
+                          />
+                        ) : execution.status === ExecutionStatus.RUNNING ? (
+                          <IconLoader2 
+                            size={18} 
+                            className="rotating" 
+                            style={{ 
+                              color: 'var(--mantine-color-blue-filled)',
+                              filter: 'drop-shadow(0 0 8px rgba(59, 130, 246, 0.4))'
+                            }} 
+                          />
+                        ) : execution.status === ExecutionStatus.PENDING ? (
+                          <IconClock 
+                            size={18} 
+                            style={{ 
+                              color: 'var(--mantine-color-yellow-filled)',
+                              filter: 'drop-shadow(0 0 8px rgba(234, 179, 8, 0.4))'
+                            }} 
+                          />
+                        ) : (
+                          <IconX 
+                            size={18} 
+                            style={{ 
+                              color: 'var(--mantine-color-red-filled)',
+                              filter: 'drop-shadow(0 0 8px rgba(239, 68, 68, 0.4))'
+                            }} 
+                          />
+                        )}
+                        <Text fw={500} size="sm" style={{ color: '#C1C2C5' }}>
                           {execution.status}
-                        </Badge>
+                        </Text>
                       </Group>
 
-                      <Stack gap="xs">
-                        <Text size="sm" c="dimmed" style={{ fontSize: '1.1rem', letterSpacing: '0.3px' }}>
+                      <Stack gap={4}>
+                        <Text size="sm" c="dimmed" style={{ fontSize: '0.9rem' }}>
                           Started: {formatDate(execution.started_at)}
                         </Text>
                         {execution.completed_at && (
-                          <Text size="sm" c="dimmed" style={{ fontSize: '1.1rem', letterSpacing: '0.3px' }}>
+                          <Text size="sm" c="dimmed" style={{ fontSize: '0.9rem' }}>
                             Duration: {formatDuration(execution.started_at, execution.completed_at)}
                           </Text>
                         )}
                       </Stack>
 
                       <Button 
-                        variant="light" 
-                        size="sm" 
+                        variant="subtle"
+                        size="xs"
+                        fullWidth
                         style={{
-                          backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                          transition: 'all 0.2s ease',
+                          color: '#C1C2C5',
+                          backgroundColor: 'rgba(255, 255, 255, 0.05)',
                           '&:hover': {
-                            backgroundColor: 'rgba(255, 255, 255, 0.15)',
-                            transform: 'translateY(-2px)',
+                            backgroundColor: 'rgba(255, 255, 255, 0.1)',
                           }
                         }}
                       >
@@ -1157,17 +1155,18 @@ export function ScriptDetailPage() {
                 >
                   {executionOutput ? (
                     executionOutput.split('\n').map((line, index) => (
-                      <Text
+                      <div
                         key={index}
                         style={{
-                          whiteSpace: 'pre-wrap',
+                          display: 'block',
+                          whiteSpace: 'pre',
                           color: '#d4d4d4',
-                          padding: '2px 0',
-                          fontSize: 'inherit',
+                          padding: '2px 8px',
+                          lineHeight: '1.5',
                         }}
                       >
                         {line}
-                      </Text>
+                      </div>
                     ))
                   ) : (
                     <Text c="dimmed" ta="center">
@@ -1251,8 +1250,6 @@ export function ScriptDetailPage() {
                     backgroundColor: '#1A1B1E',
                     fontFamily: 'monospace',
                     fontSize: '13px',
-                    whiteSpace: 'pre-wrap',
-                    wordBreak: 'break-word',
                   }}
                 >
                   {logContent ? (
@@ -1260,8 +1257,10 @@ export function ScriptDetailPage() {
                       <div
                         key={index}
                         style={{
-                          padding: '2px 0',
+                          display: 'block',
+                          whiteSpace: 'pre',
                           color: '#d4d4d4',
+                          padding: '2px 8px',
                           lineHeight: '1.5',
                         }}
                       >

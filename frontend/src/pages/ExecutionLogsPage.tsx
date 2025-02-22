@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Card, Select, Text, Group, Badge, Box, Stack, Title, Container, Combobox, InputBase, useCombobox, Portal, Paper, ActionIcon } from '@mantine/core';
+import { Card, Select, Text, Group, Box, Stack, Title, Container, Combobox, InputBase, useCombobox, Portal, Paper, ActionIcon, Button } from '@mantine/core';
 import { useApi } from '../hooks/useApi';
 import { Script, Execution } from '../types';
 import { useSearchParams } from 'react-router-dom';
@@ -200,24 +200,24 @@ export function ExecutionLogsPage() {
           </Group>
 
           <div style={{ 
-            display: 'grid', 
-            gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', 
-            gap: '1rem' 
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))',
+            gap: '1rem',
+            width: '100%'
           }}>
             {executions.map((execution) => (
-              <Card 
-                key={execution.id} 
-                shadow="sm" 
-                padding="xl" 
-                radius="md" 
-                withBorder 
-                style={{ 
+              <Card
+                key={execution.id}
+                withBorder
+                padding="md"
+                onClick={() => openLogModal(execution)}
+                style={{
                   cursor: 'pointer',
                   backgroundColor: 
-                    execution.status === ExecutionStatus.SUCCESS ? 'rgba(34, 197, 94, 0.1)' :
-                    execution.status === ExecutionStatus.RUNNING ? 'rgba(59, 130, 246, 0.1)' :
-                    execution.status === ExecutionStatus.PENDING ? 'rgba(234, 179, 8, 0.1)' :
-                    'rgba(239, 68, 68, 0.1)',
+                    execution.status === ExecutionStatus.SUCCESS ? 'rgba(34, 197, 94, 0.05)' :
+                    execution.status === ExecutionStatus.RUNNING ? 'rgba(59, 130, 246, 0.05)' :
+                    execution.status === ExecutionStatus.PENDING ? 'rgba(234, 179, 8, 0.05)' :
+                    'rgba(239, 68, 68, 0.05)',
                   borderColor: 
                     execution.status === ExecutionStatus.SUCCESS ? 'rgba(34, 197, 94, 0.2)' :
                     execution.status === ExecutionStatus.RUNNING ? 'rgba(59, 130, 246, 0.2)' :
@@ -227,25 +227,18 @@ export function ExecutionLogsPage() {
                   '&:hover': {
                     transform: 'translateY(-4px)',
                     backgroundColor: 
-                      execution.status === ExecutionStatus.SUCCESS ? 'rgba(34, 197, 94, 0.15)' :
-                      execution.status === ExecutionStatus.RUNNING ? 'rgba(59, 130, 246, 0.15)' :
-                      execution.status === ExecutionStatus.PENDING ? 'rgba(234, 179, 8, 0.15)' :
-                      'rgba(239, 68, 68, 0.15)',
-                    borderColor: 
-                      execution.status === ExecutionStatus.SUCCESS ? 'rgba(34, 197, 94, 0.3)' :
-                      execution.status === ExecutionStatus.RUNNING ? 'rgba(59, 130, 246, 0.3)' :
-                      execution.status === ExecutionStatus.PENDING ? 'rgba(234, 179, 8, 0.3)' :
-                      'rgba(239, 68, 68, 0.3)',
+                      execution.status === ExecutionStatus.SUCCESS ? 'rgba(34, 197, 94, 0.1)' :
+                      execution.status === ExecutionStatus.RUNNING ? 'rgba(59, 130, 246, 0.1)' :
+                      execution.status === ExecutionStatus.PENDING ? 'rgba(234, 179, 8, 0.1)' :
+                      'rgba(239, 68, 68, 0.1)',
                   }
                 }}
-                onClick={() => openLogModal(execution)}
               >
-                <Stack gap="md">
-                  <Group justify="space-between" mb="xs">
-                    <Text fw={500} size="xl" style={{ fontSize: '1.5rem' }}>{execution.scriptName}</Text>
+                <Stack gap="sm">
+                  <Group gap="xs">
                     {execution.status === ExecutionStatus.SUCCESS ? (
                       <IconCheck 
-                        size={24} 
+                        size={18} 
                         style={{ 
                           color: 'var(--mantine-color-green-filled)',
                           filter: 'drop-shadow(0 0 8px rgba(34, 197, 94, 0.4))'
@@ -253,7 +246,7 @@ export function ExecutionLogsPage() {
                       />
                     ) : execution.status === ExecutionStatus.RUNNING ? (
                       <IconLoader2 
-                        size={24} 
+                        size={18} 
                         className="rotating" 
                         style={{ 
                           color: 'var(--mantine-color-blue-filled)',
@@ -262,7 +255,7 @@ export function ExecutionLogsPage() {
                       />
                     ) : execution.status === ExecutionStatus.PENDING ? (
                       <IconClock 
-                        size={24} 
+                        size={18} 
                         style={{ 
                           color: 'var(--mantine-color-yellow-filled)',
                           filter: 'drop-shadow(0 0 8px rgba(234, 179, 8, 0.4))'
@@ -270,54 +263,51 @@ export function ExecutionLogsPage() {
                       />
                     ) : (
                       <IconX 
-                        size={24} 
+                        size={18} 
                         style={{ 
                           color: 'var(--mantine-color-red-filled)',
                           filter: 'drop-shadow(0 0 8px rgba(239, 68, 68, 0.4))'
                         }} 
                       />
                     )}
+                    <Text fw={500} size="sm" style={{ color: '#C1C2C5' }}>
+                      {execution.status}
+                    </Text>
                   </Group>
-                  
-                  <Group gap="xs">
-                    <Badge
-                      size="lg"
-                      color={
-                        execution.status === ExecutionStatus.SUCCESS ? 'green' : 
-                        execution.status === ExecutionStatus.PENDING ? 'yellow' : 
-                        execution.status === ExecutionStatus.RUNNING ? 'blue' : 'red'
-                      }
-                      style={{
-                        backgroundColor: 
-                          execution.status === ExecutionStatus.SUCCESS ? 'rgba(34, 197, 94, 0.1)' :
-                          execution.status === ExecutionStatus.RUNNING ? 'rgba(59, 130, 246, 0.1)' :
-                          execution.status === ExecutionStatus.PENDING ? 'rgba(234, 179, 8, 0.1)' :
-                          'rgba(239, 68, 68, 0.1)',
-                        border: 
-                          execution.status === ExecutionStatus.SUCCESS ? '1px solid rgba(34, 197, 94, 0.2)' :
-                          execution.status === ExecutionStatus.RUNNING ? '1px solid rgba(59, 130, 246, 0.2)' :
-                          execution.status === ExecutionStatus.PENDING ? '1px solid rgba(234, 179, 8, 0.2)' :
-                          '1px solid rgba(239, 68, 68, 0.2)',
-                      }}
-                    >
-                      {execution.status.toUpperCase()}
-                    </Badge>
-                    <Text size="sm" c="dimmed" style={{ fontSize: '1.1rem', letterSpacing: '0.3px' }}>
-                      {formatDate(execution.started_at)}
+
+                  <Stack gap={4}>
+                    <Text size="sm" c="dimmed" style={{ fontSize: '0.9rem' }}>
+                      Script: {execution.scriptName}
+                    </Text>
+                    <Text size="sm" c="dimmed" style={{ fontSize: '0.9rem' }}>
+                      Started: {formatDate(execution.started_at)}
                     </Text>
                     {execution.completed_at && (
-                      <Text size="sm" c="dimmed" style={{ fontSize: '1.1rem', letterSpacing: '0.3px' }}>
-                        • Duration: {formatDuration(execution.started_at, execution.completed_at)}
+                      <Text size="sm" c="dimmed" style={{ fontSize: '0.9rem' }}>
+                        Duration: {formatDuration(execution.started_at, execution.completed_at)}
                       </Text>
                     )}
-                  </Group>
+                  </Stack>
+
+                  <Button 
+                    variant="subtle"
+                    size="xs"
+                    fullWidth
+                    style={{
+                      color: '#C1C2C5',
+                      backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                      '&:hover': {
+                        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                      }
+                    }}
+                  >
+                    View Logs
+                  </Button>
                 </Stack>
               </Card>
             ))}
             {!isLoading && executions.length === 0 && (
-              <Text c="dimmed" ta="center" style={{ gridColumn: '1 / -1', padding: '2rem' }}>
-                No executions found
-              </Text>
+              <Text c="dimmed" ta="center">No executions found</Text>
             )}
           </div>
         </Stack>
@@ -382,22 +372,22 @@ export function ExecutionLogsPage() {
                     backgroundColor: '#1A1B1E',
                     fontFamily: 'monospace',
                     fontSize: '13px',
-                    whiteSpace: 'pre-wrap',
                   }}
                 >
                   {logContent ? (
                     logContent.split('\n').map((line, index) => (
-                      <Text
+                      <div
                         key={index}
                         style={{
-                          whiteSpace: 'pre-wrap',
+                          display: 'block',
+                          whiteSpace: 'pre',
                           color: '#d4d4d4',
-                          padding: '2px 0',
-                          fontSize: 'inherit',
+                          padding: '2px 8px',
+                          lineHeight: '1.5',
                         }}
                       >
                         {line.replace(/^ERROR: /, '')}
-                      </Text>
+                      </div>
                     ))
                   ) : (
                     <Text c="dimmed" ta="center">
