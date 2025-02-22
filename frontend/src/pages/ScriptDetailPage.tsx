@@ -994,7 +994,7 @@ export function ScriptDetailPage() {
                         key={index}
                         style={{
                           display: 'block',
-                          whiteSpace: 'pre-line',
+                          whiteSpace: 'pre',
                           color: '#d4d4d4',
                           padding: '2px 8px',
                           lineHeight: '1.5',
@@ -1094,7 +1094,7 @@ export function ScriptDetailPage() {
                         key={index}
                         style={{
                           display: 'block',
-                          whiteSpace: 'pre-line',
+                          whiteSpace: 'pre',
                           color: '#d4d4d4',
                           padding: '2px 8px',
                           lineHeight: '1.5',
