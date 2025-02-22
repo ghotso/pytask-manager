@@ -11,7 +11,7 @@ import {
   IconFilter,
 } from '@tabler/icons-react';
 import { ExecutionStatus } from '../types';
-import { formatDate } from '../utils/date';
+import { formatDate, formatDuration } from '../utils/date';
 
 interface ExtendedExecution extends Execution {
   scriptName: string;
@@ -139,14 +139,10 @@ export function ExecutionLogsPage() {
     setSearchParams(newParams);
   };
 
-  const openLogModal = (content: string) => {
-    setLogContent(content);
+  const openLogModal = (execution: ExtendedExecution) => {
+    setSelectedExecution(execution);
+    setLogContent(execution.log_output || '');
     setIsLogModalOpen(true);
-  };
-
-  const closeLogModal = () => {
-    setLogContent('');
-    setIsLogModalOpen(false);
   };
 
   return (
@@ -216,10 +212,7 @@ export function ExecutionLogsPage() {
                 radius="md" 
                 withBorder 
                 style={{ cursor: 'pointer' }}
-                onClick={() => {
-                  openLogModal(execution.log_output || '');
-                  setSelectedExecution(execution);
-                }}
+                onClick={() => openLogModal(execution)}
               >
                 <Group justify="space-between" mb="xs">
                   <Text fw={500}>{execution.scriptName}</Text>
@@ -286,16 +279,21 @@ export function ExecutionLogsPage() {
             >
               <Stack>
                 <Group justify="space-between" mb="md">
-                  <Title order={3}>
-                    Execution Log
-                    {selectedExecution?.started_at && (
-                      <Text size="sm" c="dimmed" mt={4}>
-                        {formatDate(selectedExecution.started_at)}
+                  <Stack gap={0}>
+                    <Title order={3}>Execution Log</Title>
+                    <Group gap="xs">
+                      <Text size="sm" c="dimmed">
+                        {formatDate(selectedExecution?.started_at || '')}
                       </Text>
-                    )}
-                  </Title>
+                      {selectedExecution && (
+                        <Text size="sm" c="dimmed">
+                          • Duration: {formatDuration(selectedExecution.started_at, selectedExecution.completed_at)}
+                        </Text>
+                      )}
+                    </Group>
+                  </Stack>
                   <ActionIcon 
-                    onClick={closeLogModal}
+                    onClick={() => setIsLogModalOpen(false)}
                     variant="subtle"
                   >
                     ✕
@@ -311,6 +309,7 @@ export function ExecutionLogsPage() {
                     backgroundColor: '#1A1B1E',
                     fontFamily: 'monospace',
                     fontSize: '13px',
+                    whiteSpace: 'pre-wrap',
                   }}
                 >
                   {logContent ? (

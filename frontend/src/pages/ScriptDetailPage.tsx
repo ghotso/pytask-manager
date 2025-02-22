@@ -18,7 +18,7 @@ import {
   Title,
   ScrollArea,
 } from '@mantine/core';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { notifications } from '@mantine/notifications';
 import { 
   IconPlayerPlay, 
@@ -37,7 +37,7 @@ import { scriptsApi } from '../api/client';
 import { Tag, Dependency, Schedule, Execution, ExecutionStatus } from '../types';
 import { WS_BASE_URL } from '../config';
 import axios from 'axios';
-import { formatDate } from '../utils/date';
+import { formatDate, formatDuration } from '../utils/date';
 
 export function ScriptDetailPage() {
   const { id } = useParams();
@@ -931,6 +931,14 @@ export function ScriptDetailPage() {
             <Card withBorder>
               <Group justify="space-between" mb="md">
                 <Text fw={500} size="lg">Execution History</Text>
+                <Button
+                  component={Link}
+                  to={`/executions?script=${encodeURIComponent(name)}`}
+                  variant="light"
+                  size="sm"
+                >
+                  View All Executions
+                </Button>
               </Group>
 
               {executions.length > 0 ? (
@@ -1028,8 +1036,15 @@ export function ScriptDetailPage() {
             >
               <Stack>
                 <Group justify="space-between" mb="md">
-                  <Group>
+                  <Stack gap={0}>
                     <Title order={3}>Script Execution</Title>
+                    {executionStatus !== ExecutionStatus.RUNNING && (
+                      <Text size="sm" c="dimmed">
+                        Duration: {formatDuration(selectedExecution?.started_at || new Date().toISOString(), selectedExecution?.completed_at)}
+                      </Text>
+                    )}
+                  </Stack>
+                  <Group>
                     <Badge
                       color={
                         executionStatus === ExecutionStatus.SUCCESS
@@ -1054,14 +1069,14 @@ export function ScriptDetailPage() {
                     >
                       {executionStatus}
                     </Badge>
+                    <ActionIcon 
+                      onClick={closeExecutionModal} 
+                      disabled={isExecuting}
+                      variant="subtle"
+                    >
+                      ✕
+                    </ActionIcon>
                   </Group>
-                  <ActionIcon 
-                    onClick={closeExecutionModal} 
-                    disabled={isExecuting}
-                    variant="subtle"
-                  >
-                    ✕
-                  </ActionIcon>
                 </Group>
 
                 <Paper
@@ -1142,14 +1157,19 @@ export function ScriptDetailPage() {
             >
               <Stack>
                 <Group justify="space-between" mb="md">
-                  <Title order={3}>
-                    Execution Log
-                    {selectedExecution?.started_at && (
-                      <Text size="sm" c="dimmed" mt={4}>
-                        {formatDate(selectedExecution.started_at)}
+                  <Stack gap={0}>
+                    <Title order={3}>Execution Log</Title>
+                    <Group gap="xs">
+                      <Text size="sm" c="dimmed">
+                        {formatDate(selectedExecution?.started_at || '')}
                       </Text>
-                    )}
-                  </Title>
+                      {selectedExecution && (
+                        <Text size="sm" c="dimmed">
+                          • Duration: {formatDuration(selectedExecution.started_at, selectedExecution.completed_at)}
+                        </Text>
+                      )}
+                    </Group>
+                  </Stack>
                   <ActionIcon 
                     onClick={closeLogModal}
                     variant="subtle"
@@ -1167,21 +1187,22 @@ export function ScriptDetailPage() {
                     backgroundColor: '#1A1B1E',
                     fontFamily: 'monospace',
                     fontSize: '13px',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
                   }}
                 >
                   {logContent ? (
                     logContent.split('\n').map((line, index) => (
-                      <Text
+                      <div
                         key={index}
                         style={{
-                          whiteSpace: 'pre-wrap',
-                          color: '#d4d4d4',
                           padding: '2px 0',
-                          fontSize: 'inherit',
+                          color: '#d4d4d4',
+                          lineHeight: '1.5',
                         }}
                       >
                         {line.replace(/^ERROR: /, '')}
-                      </Text>
+                      </div>
                     ))
                   ) : (
                     <Text c="dimmed" ta="center">
