@@ -690,7 +690,7 @@ export function ScriptDetailPage() {
             </Box>
           </Box>
           <Group>
-            <Group gap="xs">
+            <Group gap="xs" style={{ height: '36px' }}>
               <Switch
                 checked={isActive}
                 onChange={handleToggleActive}
