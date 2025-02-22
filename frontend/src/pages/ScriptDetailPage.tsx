@@ -11,7 +11,6 @@ import {
   Card,
   Badge,
   Switch,
-  Table,
   Paper,
   Portal,
   ActionIcon,
@@ -262,24 +261,6 @@ export function ScriptDetailPage() {
       setLastError(null);
     } catch (err) {
       handleApiError(err, 'updating dependencies');
-    }
-  };
-
-  const handleDeleteDependency = async (packageName: string) => {
-    try {
-      setIsInstalling(true);
-      await scriptsApi.uninstallDependency(scriptId, packageName);
-      const updatedDependencies = dependencies.filter(dep => dep.package_name !== packageName);
-      await handleDependenciesChange(updatedDependencies);
-      notifications.show({
-        title: 'Success',
-        message: `${packageName} uninstalled successfully`,
-        color: 'green',
-      });
-    } catch (err) {
-      handleApiError(err, 'uninstalling dependency');
-    } finally {
-      setIsInstalling(false);
     }
   };
 
@@ -763,140 +744,6 @@ export function ScriptDetailPage() {
                   onChange={handleDependenciesChange}
                 />
                 
-                <Box style={{ overflowX: 'auto', backgroundColor: '#1A1B1E', border: '1px solid #2C2E33', borderRadius: '4px' }}>
-                  <Table
-                    withTableBorder
-                    highlightOnHover
-                    style={{ 
-                      minWidth: '600px', 
-                      width: '100%',
-                      backgroundColor: '#1A1B1E'
-                    }}
-                  >
-                    <colgroup>
-                      <col style={{ width: '35%' }} />
-                      <col style={{ width: '25%' }} />
-                      <col style={{ width: '30%' }} />
-                      <col style={{ width: '10%' }} />
-                    </colgroup>
-                    <thead>
-                      <tr style={{ backgroundColor: '#141517' }}>
-                        <th style={{ 
-                          padding: '12px 16px',
-                          color: '#C1C2C5',
-                          fontWeight: 600,
-                          fontSize: '0.9rem',
-                          textAlign: 'left',
-                          borderBottom: '1px solid #2C2E33',
-                          backgroundColor: '#141517'
-                        }}>Package</th>
-                        <th style={{ 
-                          padding: '12px 16px',
-                          color: '#C1C2C5',
-                          fontWeight: 600,
-                          fontSize: '0.9rem',
-                          textAlign: 'left',
-                          borderBottom: '1px solid #2C2E33',
-                          backgroundColor: '#141517'
-                        }}>Version</th>
-                        <th style={{ 
-                          padding: '12px 16px',
-                          color: '#C1C2C5',
-                          fontWeight: 600,
-                          fontSize: '0.9rem',
-                          textAlign: 'left',
-                          borderBottom: '1px solid #2C2E33',
-                          backgroundColor: '#141517'
-                        }}>Status</th>
-                        <th style={{ 
-                          padding: '12px 16px',
-                          color: '#C1C2C5',
-                          fontWeight: 600,
-                          fontSize: '0.9rem',
-                          textAlign: 'center',
-                          borderBottom: '1px solid #2C2E33',
-                          backgroundColor: '#141517'
-                        }}>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {dependencies.map((dep: Dependency) => (
-                        <tr key={`${dep.package_name}-${dep.version_spec}`} style={{ backgroundColor: '#1A1B1E' }}>
-                          <td style={{ 
-                            padding: '12px 16px',
-                            color: '#C1C2C5',
-                            borderBottom: '1px solid #2C2E33',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap'
-                          }}>
-                            {dep.package_name}
-                          </td>
-                          <td style={{ 
-                            padding: '12px 16px',
-                            color: '#C1C2C5',
-                            borderBottom: '1px solid #2C2E33',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap'
-                          }}>
-                            {dep.version_spec || 'latest'}
-                          </td>
-                          <td style={{ 
-                            padding: '12px 16px',
-                            borderBottom: '1px solid #2C2E33',
-                            textAlign: 'left'
-                          }}>
-                            <Badge
-                              color={dep.installed_version ? 'green' : 'yellow'}
-                              variant="filled"
-                              size="sm"
-                              style={{ 
-                                minWidth: '100px', 
-                                textAlign: 'center',
-                                display: 'inline-block'
-                              }}
-                            >
-                              {dep.installed_version ? `Installed (${dep.installed_version})` : 'Not Installed'}
-                            </Badge>
-                          </td>
-                          <td style={{ 
-                            padding: '12px 16px',
-                            borderBottom: '1px solid #2C2E33',
-                            textAlign: 'center'
-                          }}>
-                            <Button
-                              variant="subtle"
-                              color="red"
-                              size="sm"
-                              p={0}
-                              onClick={() => handleDeleteDependency(dep.package_name)}
-                              style={{ minWidth: 'unset' }}
-                            >
-                              <IconTrash size={18} />
-                            </Button>
-                          </td>
-                        </tr>
-                      ))}
-                      {dependencies.length === 0 && (
-                        <tr style={{ backgroundColor: '#1A1B1E' }}>
-                          <td 
-                            colSpan={4} 
-                            style={{ 
-                              padding: '12px 16px',
-                              color: '#666',
-                              textAlign: 'center',
-                              borderBottom: '1px solid #2C2E33'
-                            }}
-                          >
-                            No dependencies defined
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </Table>
-                </Box>
-                
                 <Group justify="flex-end">
                   <Button
                     onClick={handleInstallDependencies}
@@ -991,11 +838,11 @@ export function ScriptDetailPage() {
                     }}
                     onClick={() => handleViewLogs(execution)}
                   >
-                    <Stack gap="sm">
+                    <Stack gap="xs">
                       <Group gap="xs">
                         {execution.status === ExecutionStatus.SUCCESS ? (
                           <IconCheck 
-                            size={18} 
+                            size={16} 
                             style={{ 
                               color: 'var(--mantine-color-green-filled)',
                               filter: 'drop-shadow(0 0 8px rgba(34, 197, 94, 0.4))'
@@ -1003,7 +850,7 @@ export function ScriptDetailPage() {
                           />
                         ) : execution.status === ExecutionStatus.RUNNING ? (
                           <IconLoader2 
-                            size={18} 
+                            size={16} 
                             className="rotating" 
                             style={{ 
                               color: 'var(--mantine-color-blue-filled)',
@@ -1012,7 +859,7 @@ export function ScriptDetailPage() {
                           />
                         ) : execution.status === ExecutionStatus.PENDING ? (
                           <IconClock 
-                            size={18} 
+                            size={16} 
                             style={{ 
                               color: 'var(--mantine-color-yellow-filled)',
                               filter: 'drop-shadow(0 0 8px rgba(234, 179, 8, 0.4))'
@@ -1020,43 +867,28 @@ export function ScriptDetailPage() {
                           />
                         ) : (
                           <IconX 
-                            size={18} 
+                            size={16} 
                             style={{ 
                               color: 'var(--mantine-color-red-filled)',
                               filter: 'drop-shadow(0 0 8px rgba(239, 68, 68, 0.4))'
                             }} 
                           />
                         )}
-                        <Text fw={500} size="sm" style={{ color: '#C1C2C5' }}>
+                        <Text fw={500} size="sm" style={{ color: '#C1C2C5', fontSize: '0.85rem' }}>
                           {execution.status}
                         </Text>
                       </Group>
 
-                      <Stack gap={4}>
-                        <Text size="sm" c="dimmed" style={{ fontSize: '0.9rem' }}>
+                      <Stack gap={2}>
+                        <Text size="xs" c="dimmed" style={{ fontSize: '0.8rem' }}>
                           Started: {formatDate(execution.started_at)}
                         </Text>
                         {execution.completed_at && (
-                          <Text size="sm" c="dimmed" style={{ fontSize: '0.9rem' }}>
+                          <Text size="xs" c="dimmed" style={{ fontSize: '0.8rem' }}>
                             Duration: {formatDuration(execution.started_at, execution.completed_at)}
                           </Text>
                         )}
                       </Stack>
-
-                      <Button 
-                        variant="subtle"
-                        size="xs"
-                        fullWidth
-                        style={{
-                          color: '#C1C2C5',
-                          backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                          '&:hover': {
-                            backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                          }
-                        }}
-                      >
-                        View Logs
-                      </Button>
                     </Stack>
                   </Card>
                 ))}
@@ -1162,7 +994,7 @@ export function ScriptDetailPage() {
                           whiteSpace: 'pre',
                           color: '#d4d4d4',
                           padding: '2px 8px',
-                          lineHeight: '1.5',
+                          lineHeight: '1.5'
                         }}
                       >
                         {line}
@@ -1261,7 +1093,7 @@ export function ScriptDetailPage() {
                           whiteSpace: 'pre',
                           color: '#d4d4d4',
                           padding: '2px 8px',
-                          lineHeight: '1.5',
+                          lineHeight: '1.5'
                         }}
                       >
                         {line.replace(/^ERROR: /, '')}

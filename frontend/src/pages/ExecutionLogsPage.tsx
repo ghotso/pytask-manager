@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Card, Select, Text, Group, Box, Stack, Title, Container, Combobox, InputBase, useCombobox, Portal, Paper, ActionIcon, Button } from '@mantine/core';
+import { Card, Select, Text, Group, Box, Stack, Title, Container, Combobox, InputBase, useCombobox, Portal, Paper, ActionIcon } from '@mantine/core';
 import { useApi } from '../hooks/useApi';
 import { Script, Execution } from '../types';
 import { useSearchParams } from 'react-router-dom';
@@ -288,21 +288,6 @@ export function ExecutionLogsPage() {
                       </Text>
                     )}
                   </Stack>
-
-                  <Button 
-                    variant="subtle"
-                    size="xs"
-                    fullWidth
-                    style={{
-                      color: '#C1C2C5',
-                      backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                      '&:hover': {
-                        backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                      }
-                    }}
-                  >
-                    View Logs
-                  </Button>
                 </Stack>
               </Card>
             ))}
