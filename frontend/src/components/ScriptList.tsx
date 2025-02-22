@@ -234,29 +234,33 @@ export function ScriptList() {
             <Card
               key={script.id}
               withBorder
+              padding="xl"
               style={{ 
                 textDecoration: 'none', 
                 color: 'inherit',
-                backgroundColor: '#1A1B1E',
-                transition: 'transform 0.2s ease, border-color 0.2s ease',
+                backgroundColor: script.is_active ? 'rgba(59, 130, 246, 0.1)' : 'rgba(234, 179, 8, 0.1)',
+                borderColor: script.is_active ? 'rgba(59, 130, 246, 0.2)' : 'rgba(234, 179, 8, 0.2)',
+                transition: 'all 0.2s ease',
                 '&:hover': {
-                  transform: 'translateY(-2px)',
-                  borderColor: 'var(--mantine-color-blue-filled)',
+                  transform: 'translateY(-4px)',
+                  backgroundColor: script.is_active ? 'rgba(59, 130, 246, 0.15)' : 'rgba(234, 179, 8, 0.15)',
+                  borderColor: script.is_active ? 'rgba(59, 130, 246, 0.3)' : 'rgba(234, 179, 8, 0.3)',
                 }
               }}
             >
-              <Stack gap="xs">
+              <Stack gap="md">
                 <Group justify="space-between" align="flex-start">
                   <Text 
                     component={Link}
                     to={`/scripts/${script.id}`}
                     fw={500} 
-                    size="lg" 
+                    size="xl" 
                     lineClamp={1}
                     style={{ 
                       textDecoration: 'none',
                       color: 'inherit',
-                      flex: 1
+                      flex: 1,
+                      fontSize: '1.5rem'
                     }}
                   >
                     {script.name}
@@ -281,7 +285,9 @@ export function ScriptList() {
                     lineClamp={2}
                     style={{ 
                       textDecoration: 'none',
-                      color: 'inherit'
+                      color: 'inherit',
+                      fontSize: '1.1rem',
+                      letterSpacing: '0.3px'
                     }}
                   >
                     {script.description}
@@ -293,8 +299,12 @@ export function ScriptList() {
                     {script.tags.map((tag) => (
                       <Badge
                         key={tag.name}
-                        size="sm"
+                        size="lg"
                         variant="light"
+                        style={{
+                          backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                          color: '#fff'
+                        }}
                       >
                         {tag.name}
                       </Badge>
@@ -302,32 +312,61 @@ export function ScriptList() {
                   </Group>
                 )}
 
-                <Group mt="auto" pt="sm" style={{ borderTop: '1px solid #2C2E33' }}>
+                <Group mt="auto" pt="md" style={{ borderTop: '1px solid rgba(44, 46, 51, 0.5)' }}>
                   <Group gap="xs">
                     {script.dependencies.some(dep => !dep.installed_version) && (
                       <Tooltip label="Some dependencies are not installed">
-                        <Badge size="sm" color="yellow" leftSection={
-                          <IconAlertTriangle size={12} style={{ marginRight: 4 }} />
-                        }>
+                        <Badge 
+                          size="lg" 
+                          color="yellow" 
+                          leftSection={
+                            <IconAlertTriangle 
+                              size={16} 
+                              style={{ 
+                                marginRight: 4,
+                                filter: 'drop-shadow(0 0 8px rgba(234, 179, 8, 0.4))'
+                              }} 
+                            />
+                          }
+                          style={{
+                            backgroundColor: 'rgba(234, 179, 8, 0.1)',
+                            border: '1px solid rgba(234, 179, 8, 0.2)'
+                          }}
+                        >
                           Dependencies
                         </Badge>
                       </Tooltip>
                     )}
                     {script.schedules.length > 0 && (
-                      <Badge size="sm" color="blue">
+                      <Badge 
+                        size="lg" 
+                        color="blue"
+                        style={{
+                          backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                          border: '1px solid rgba(59, 130, 246, 0.2)'
+                        }}
+                      >
                         {script.schedules.length} Schedule{script.schedules.length !== 1 ? 's' : ''}
                       </Badge>
                     )}
                     {script.last_execution && (
                       <Tooltip label={`Last execution: ${script.last_execution.status}`}>
                         <Badge 
-                          size="sm" 
+                          size="lg" 
                           color={script.last_execution.status === ExecutionStatus.SUCCESS ? 'green' : 'red'}
                           leftSection={
                             script.last_execution.status === ExecutionStatus.SUCCESS
-                              ? <IconCheck size={12} />
-                              : <IconX size={12} />
+                              ? <IconCheck size={16} style={{ filter: 'drop-shadow(0 0 8px rgba(34, 197, 94, 0.4))' }} />
+                              : <IconX size={16} style={{ filter: 'drop-shadow(0 0 8px rgba(239, 68, 68, 0.4))' }} />
                           }
+                          style={{
+                            backgroundColor: script.last_execution.status === ExecutionStatus.SUCCESS 
+                              ? 'rgba(34, 197, 94, 0.1)'
+                              : 'rgba(239, 68, 68, 0.1)',
+                            border: script.last_execution.status === ExecutionStatus.SUCCESS
+                              ? '1px solid rgba(34, 197, 94, 0.2)'
+                              : '1px solid rgba(239, 68, 68, 0.2)'
+                          }}
                         >
                           Last Run
                         </Badge>

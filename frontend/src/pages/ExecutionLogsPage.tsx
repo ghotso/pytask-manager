@@ -208,37 +208,110 @@ export function ExecutionLogsPage() {
               <Card 
                 key={execution.id} 
                 shadow="sm" 
-                padding="lg" 
+                padding="xl" 
                 radius="md" 
                 withBorder 
-                style={{ cursor: 'pointer' }}
+                style={{ 
+                  cursor: 'pointer',
+                  backgroundColor: 
+                    execution.status === ExecutionStatus.SUCCESS ? 'rgba(34, 197, 94, 0.1)' :
+                    execution.status === ExecutionStatus.RUNNING ? 'rgba(59, 130, 246, 0.1)' :
+                    execution.status === ExecutionStatus.PENDING ? 'rgba(234, 179, 8, 0.1)' :
+                    'rgba(239, 68, 68, 0.1)',
+                  borderColor: 
+                    execution.status === ExecutionStatus.SUCCESS ? 'rgba(34, 197, 94, 0.2)' :
+                    execution.status === ExecutionStatus.RUNNING ? 'rgba(59, 130, 246, 0.2)' :
+                    execution.status === ExecutionStatus.PENDING ? 'rgba(234, 179, 8, 0.2)' :
+                    'rgba(239, 68, 68, 0.2)',
+                  transition: 'all 0.2s ease',
+                  '&:hover': {
+                    transform: 'translateY(-4px)',
+                    backgroundColor: 
+                      execution.status === ExecutionStatus.SUCCESS ? 'rgba(34, 197, 94, 0.15)' :
+                      execution.status === ExecutionStatus.RUNNING ? 'rgba(59, 130, 246, 0.15)' :
+                      execution.status === ExecutionStatus.PENDING ? 'rgba(234, 179, 8, 0.15)' :
+                      'rgba(239, 68, 68, 0.15)',
+                    borderColor: 
+                      execution.status === ExecutionStatus.SUCCESS ? 'rgba(34, 197, 94, 0.3)' :
+                      execution.status === ExecutionStatus.RUNNING ? 'rgba(59, 130, 246, 0.3)' :
+                      execution.status === ExecutionStatus.PENDING ? 'rgba(234, 179, 8, 0.3)' :
+                      'rgba(239, 68, 68, 0.3)',
+                  }
+                }}
                 onClick={() => openLogModal(execution)}
               >
-                <Group justify="space-between" mb="xs">
-                  <Text fw={500}>{execution.scriptName}</Text>
-                  {execution.status === ExecutionStatus.SUCCESS ? (
-                    <IconCheck size={18} color="var(--mantine-color-green-filled)" />
-                  ) : execution.status === ExecutionStatus.RUNNING ? (
-                    <IconLoader2 size={18} className="rotating" color="var(--mantine-color-blue-filled)" />
-                  ) : execution.status === ExecutionStatus.PENDING ? (
-                    <IconClock size={18} color="var(--mantine-color-yellow-filled)" />
-                  ) : (
-                    <IconX size={18} color="var(--mantine-color-red-filled)" />
-                  )}
-                  <Badge
-                    color={
-                      execution.status === ExecutionStatus.SUCCESS ? 'green' : 
-                      execution.status === ExecutionStatus.PENDING ? 'yellow' : 
-                      execution.status === ExecutionStatus.RUNNING ? 'blue' : 'red'
-                    }
-                  >
-                    {execution.status.toUpperCase()}
-                  </Badge>
-                </Group>
-                
-                <Text size="sm" c="dimmed">
-                  {formatDate(execution.started_at)}
-                </Text>
+                <Stack gap="md">
+                  <Group justify="space-between" mb="xs">
+                    <Text fw={500} size="xl" style={{ fontSize: '1.5rem' }}>{execution.scriptName}</Text>
+                    {execution.status === ExecutionStatus.SUCCESS ? (
+                      <IconCheck 
+                        size={24} 
+                        style={{ 
+                          color: 'var(--mantine-color-green-filled)',
+                          filter: 'drop-shadow(0 0 8px rgba(34, 197, 94, 0.4))'
+                        }} 
+                      />
+                    ) : execution.status === ExecutionStatus.RUNNING ? (
+                      <IconLoader2 
+                        size={24} 
+                        className="rotating" 
+                        style={{ 
+                          color: 'var(--mantine-color-blue-filled)',
+                          filter: 'drop-shadow(0 0 8px rgba(59, 130, 246, 0.4))'
+                        }} 
+                      />
+                    ) : execution.status === ExecutionStatus.PENDING ? (
+                      <IconClock 
+                        size={24} 
+                        style={{ 
+                          color: 'var(--mantine-color-yellow-filled)',
+                          filter: 'drop-shadow(0 0 8px rgba(234, 179, 8, 0.4))'
+                        }} 
+                      />
+                    ) : (
+                      <IconX 
+                        size={24} 
+                        style={{ 
+                          color: 'var(--mantine-color-red-filled)',
+                          filter: 'drop-shadow(0 0 8px rgba(239, 68, 68, 0.4))'
+                        }} 
+                      />
+                    )}
+                  </Group>
+                  
+                  <Group gap="xs">
+                    <Badge
+                      size="lg"
+                      color={
+                        execution.status === ExecutionStatus.SUCCESS ? 'green' : 
+                        execution.status === ExecutionStatus.PENDING ? 'yellow' : 
+                        execution.status === ExecutionStatus.RUNNING ? 'blue' : 'red'
+                      }
+                      style={{
+                        backgroundColor: 
+                          execution.status === ExecutionStatus.SUCCESS ? 'rgba(34, 197, 94, 0.1)' :
+                          execution.status === ExecutionStatus.RUNNING ? 'rgba(59, 130, 246, 0.1)' :
+                          execution.status === ExecutionStatus.PENDING ? 'rgba(234, 179, 8, 0.1)' :
+                          'rgba(239, 68, 68, 0.1)',
+                        border: 
+                          execution.status === ExecutionStatus.SUCCESS ? '1px solid rgba(34, 197, 94, 0.2)' :
+                          execution.status === ExecutionStatus.RUNNING ? '1px solid rgba(59, 130, 246, 0.2)' :
+                          execution.status === ExecutionStatus.PENDING ? '1px solid rgba(234, 179, 8, 0.2)' :
+                          '1px solid rgba(239, 68, 68, 0.2)',
+                      }}
+                    >
+                      {execution.status.toUpperCase()}
+                    </Badge>
+                    <Text size="sm" c="dimmed" style={{ fontSize: '1.1rem', letterSpacing: '0.3px' }}>
+                      {formatDate(execution.started_at)}
+                    </Text>
+                    {execution.completed_at && (
+                      <Text size="sm" c="dimmed" style={{ fontSize: '1.1rem', letterSpacing: '0.3px' }}>
+                        • Duration: {formatDuration(execution.started_at, execution.completed_at)}
+                      </Text>
+                    )}
+                  </Group>
+                </Stack>
               </Card>
             ))}
             {!isLoading && executions.length === 0 && (

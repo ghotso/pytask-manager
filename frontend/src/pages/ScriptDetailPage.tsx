@@ -696,6 +696,22 @@ export function ScriptDetailPage() {
                 onChange={handleToggleActive}
                 disabled={isToggleDisabled()}
                 label={isActive ? 'Active' : 'Inactive'}
+                style={{
+                  padding: '4px 12px',
+                  borderRadius: '8px',
+                  backgroundColor: isToggleDisabled() 
+                    ? 'rgba(236, 72, 153, 0.1)' // Pink for disabled due to missing requirements
+                    : isActive 
+                      ? 'rgba(34, 197, 94, 0.1)' // Green for active
+                      : 'rgba(239, 68, 68, 0.1)', // Red for inactive but clickable
+                  borderColor: isToggleDisabled()
+                    ? 'rgba(236, 72, 153, 0.2)'
+                    : isActive
+                      ? 'rgba(34, 197, 94, 0.2)'
+                      : 'rgba(239, 68, 68, 0.2)',
+                  border: '1px solid',
+                  transition: 'all 0.2s ease',
+                }}
               />
             </Group>
             <Button
@@ -941,67 +957,115 @@ export function ScriptDetailPage() {
                 </Button>
               </Group>
 
-              {executions.length > 0 ? (
-                <Table>
-                  <Table.Thead>
-                    <Table.Tr>
-                      <Table.Th>Status</Table.Th>
-                      <Table.Th>Started</Table.Th>
-                      <Table.Th>Completed</Table.Th>
-                      <Table.Th>Actions</Table.Th>
-                    </Table.Tr>
-                  </Table.Thead>
-                  <Table.Tbody>
-                    {executions.map((execution) => (
-                      <Table.Tr key={execution.id}>
-                        <Table.Td>
-                          <Badge
-                            color={
-                              execution.status === ExecutionStatus.SUCCESS
-                                ? 'green'
-                                : execution.status === ExecutionStatus.FAILURE
-                                ? 'red'
-                                : execution.status === ExecutionStatus.RUNNING
-                                ? 'blue'
-                                : 'gray'
-                            }
-                            leftSection={
-                              execution.status === ExecutionStatus.SUCCESS ? (
-                                <IconCheck size={14} />
-                              ) : execution.status === ExecutionStatus.FAILURE ? (
-                                <IconX size={14} />
-                              ) : execution.status === ExecutionStatus.RUNNING ? (
-                                <IconLoader2 size={14} className="rotating" />
-                              ) : (
-                                <IconClock size={14} />
-                              )
-                            }
-                          >
-                            {execution.status}
-                          </Badge>
-                        </Table.Td>
-                        <Table.Td>{formatDate(execution.started_at)}</Table.Td>
-                        <Table.Td>
-                          {execution.completed_at
-                            ? formatDate(execution.completed_at)
-                            : '-'}
-                        </Table.Td>
-                        <Table.Td>
-                          <Button
-                            variant="light"
-                            size="xs"
-                            onClick={() => handleViewLogs(execution)}
-                          >
-                            View Logs
-                          </Button>
-                        </Table.Td>
-                      </Table.Tr>
-                    ))}
-                  </Table.Tbody>
-                </Table>
-              ) : (
-                <Text c="dimmed" ta="center">No executions yet</Text>
-              )}
+              <div style={{ 
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+                gap: '1rem'
+              }}>
+                {executions.slice(0, 10).map((execution) => (
+                  <Card
+                    key={execution.id}
+                    withBorder
+                    padding="lg"
+                    style={{
+                      backgroundColor: 
+                        execution.status === ExecutionStatus.SUCCESS ? 'rgba(34, 197, 94, 0.1)' :
+                        execution.status === ExecutionStatus.RUNNING ? 'rgba(59, 130, 246, 0.1)' :
+                        execution.status === ExecutionStatus.PENDING ? 'rgba(234, 179, 8, 0.1)' :
+                        'rgba(239, 68, 68, 0.1)',
+                      borderColor: 
+                        execution.status === ExecutionStatus.SUCCESS ? 'rgba(34, 197, 94, 0.2)' :
+                        execution.status === ExecutionStatus.RUNNING ? 'rgba(59, 130, 246, 0.2)' :
+                        execution.status === ExecutionStatus.PENDING ? 'rgba(234, 179, 8, 0.2)' :
+                        'rgba(239, 68, 68, 0.2)',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease',
+                      '&:hover': {
+                        transform: 'translateY(-4px)',
+                        backgroundColor: 
+                          execution.status === ExecutionStatus.SUCCESS ? 'rgba(34, 197, 94, 0.15)' :
+                          execution.status === ExecutionStatus.RUNNING ? 'rgba(59, 130, 246, 0.15)' :
+                          execution.status === ExecutionStatus.PENDING ? 'rgba(234, 179, 8, 0.15)' :
+                          'rgba(239, 68, 68, 0.15)',
+                        borderColor: 
+                          execution.status === ExecutionStatus.SUCCESS ? 'rgba(34, 197, 94, 0.3)' :
+                          execution.status === ExecutionStatus.RUNNING ? 'rgba(59, 130, 246, 0.3)' :
+                          execution.status === ExecutionStatus.PENDING ? 'rgba(234, 179, 8, 0.3)' :
+                          'rgba(239, 68, 68, 0.3)',
+                      }
+                    }}
+                    onClick={() => handleViewLogs(execution)}
+                  >
+                    <Stack gap="md">
+                      <Group justify="space-between">
+                        <Badge
+                          size="lg"
+                          color={
+                            execution.status === ExecutionStatus.SUCCESS ? 'green' :
+                            execution.status === ExecutionStatus.RUNNING ? 'blue' :
+                            execution.status === ExecutionStatus.PENDING ? 'yellow' :
+                            'red'
+                          }
+                          leftSection={
+                            execution.status === ExecutionStatus.SUCCESS ? (
+                              <IconCheck size={16} style={{ filter: 'drop-shadow(0 0 8px rgba(34, 197, 94, 0.4))' }} />
+                            ) : execution.status === ExecutionStatus.RUNNING ? (
+                              <IconLoader2 size={16} className="rotating" style={{ filter: 'drop-shadow(0 0 8px rgba(59, 130, 246, 0.4))' }} />
+                            ) : execution.status === ExecutionStatus.PENDING ? (
+                              <IconClock size={16} style={{ filter: 'drop-shadow(0 0 8px rgba(234, 179, 8, 0.4))' }} />
+                            ) : (
+                              <IconX size={16} style={{ filter: 'drop-shadow(0 0 8px rgba(239, 68, 68, 0.4))' }} />
+                            )
+                          }
+                          style={{
+                            backgroundColor: 
+                              execution.status === ExecutionStatus.SUCCESS ? 'rgba(34, 197, 94, 0.1)' :
+                              execution.status === ExecutionStatus.RUNNING ? 'rgba(59, 130, 246, 0.1)' :
+                              execution.status === ExecutionStatus.PENDING ? 'rgba(234, 179, 8, 0.1)' :
+                              'rgba(239, 68, 68, 0.1)',
+                            border: 
+                              execution.status === ExecutionStatus.SUCCESS ? '1px solid rgba(34, 197, 94, 0.2)' :
+                              execution.status === ExecutionStatus.RUNNING ? '1px solid rgba(59, 130, 246, 0.2)' :
+                              execution.status === ExecutionStatus.PENDING ? '1px solid rgba(234, 179, 8, 0.2)' :
+                              '1px solid rgba(239, 68, 68, 0.2)',
+                          }}
+                        >
+                          {execution.status}
+                        </Badge>
+                      </Group>
+
+                      <Stack gap="xs">
+                        <Text size="sm" c="dimmed" style={{ fontSize: '1.1rem', letterSpacing: '0.3px' }}>
+                          Started: {formatDate(execution.started_at)}
+                        </Text>
+                        {execution.completed_at && (
+                          <Text size="sm" c="dimmed" style={{ fontSize: '1.1rem', letterSpacing: '0.3px' }}>
+                            Duration: {formatDuration(execution.started_at, execution.completed_at)}
+                          </Text>
+                        )}
+                      </Stack>
+
+                      <Button 
+                        variant="light" 
+                        size="sm" 
+                        style={{
+                          backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                          transition: 'all 0.2s ease',
+                          '&:hover': {
+                            backgroundColor: 'rgba(255, 255, 255, 0.15)',
+                            transform: 'translateY(-2px)',
+                          }
+                        }}
+                      >
+                        View Logs
+                      </Button>
+                    </Stack>
+                  </Card>
+                ))}
+                {executions.length === 0 && (
+                  <Text c="dimmed" ta="center">No executions yet</Text>
+                )}
+              </div>
             </Card>
           </Stack>
         </div>
