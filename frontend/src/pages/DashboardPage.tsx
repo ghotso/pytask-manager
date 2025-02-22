@@ -162,104 +162,161 @@ export function DashboardPage() {
               withBorder 
               component={Link} 
               to="/scripts?filter=active"
+              padding="xl"
               style={{ 
                 textDecoration: 'none', 
                 color: 'inherit',
                 cursor: 'pointer',
-                transition: 'transform 0.2s ease',
+                transition: 'all 0.2s ease',
+                backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                borderColor: 'rgba(59, 130, 246, 0.2)',
                 '&:hover': {
-                  transform: 'translateY(-2px)',
+                  transform: 'translateY(-4px)',
+                  backgroundColor: 'rgba(59, 130, 246, 0.15)',
+                  borderColor: 'rgba(59, 130, 246, 0.3)',
                 }
               }}
             >
-              <Group>
-                <IconScript size={24} color="var(--mantine-color-blue-filled)" />
+              <Stack gap="md">
+                <IconScript 
+                  size={32} 
+                  style={{ 
+                    color: 'var(--mantine-color-blue-filled)',
+                    filter: 'drop-shadow(0 0 8px rgba(59, 130, 246, 0.4))'
+                  }} 
+                />
                 <div>
-                  <Text size="xl" fw={700}>{stats.activeScripts}</Text>
-                  <Text size="sm" c="dimmed">Active Scripts</Text>
+                  <Text size="xl" fw={700} style={{ fontSize: '2.5rem' }}>{stats.activeScripts}</Text>
+                  <Text size="sm" c="dimmed" style={{ fontSize: '1.1rem', letterSpacing: '0.3px' }}>Active Scripts</Text>
                 </div>
-              </Group>
+              </Stack>
             </Card>
 
             <Card 
               withBorder 
               component={Link} 
               to="/scripts?filter=inactive"
+              padding="xl"
               style={{ 
                 textDecoration: 'none', 
                 color: 'inherit',
                 cursor: 'pointer',
-                transition: 'transform 0.2s ease',
+                transition: 'all 0.2s ease',
+                backgroundColor: 'rgba(234, 179, 8, 0.1)',
+                borderColor: 'rgba(234, 179, 8, 0.2)',
                 '&:hover': {
-                  transform: 'translateY(-2px)',
+                  transform: 'translateY(-4px)',
+                  backgroundColor: 'rgba(234, 179, 8, 0.15)',
+                  borderColor: 'rgba(234, 179, 8, 0.3)',
                 }
               }}
             >
-              <Group>
-                <IconPlayerPause size={24} color="var(--mantine-color-yellow-filled)" />
+              <Stack gap="md">
+                <IconPlayerPause 
+                  size={32} 
+                  style={{ 
+                    color: 'var(--mantine-color-yellow-filled)',
+                    filter: 'drop-shadow(0 0 8px rgba(234, 179, 8, 0.4))'
+                  }} 
+                />
                 <div>
-                  <Text size="xl" fw={700}>{stats.inactiveScripts}</Text>
-                  <Text size="sm" c="dimmed">Inactive Scripts</Text>
+                  <Text size="xl" fw={700} style={{ fontSize: '2.5rem' }}>{stats.inactiveScripts}</Text>
+                  <Text size="sm" c="dimmed" style={{ fontSize: '1.1rem', letterSpacing: '0.3px' }}>Inactive Scripts</Text>
                 </div>
-              </Group>
+              </Stack>
             </Card>
 
             <Card 
               withBorder 
               component={Link} 
               to="/scripts?filter=missing-deps"
+              padding="xl"
               style={{ 
                 textDecoration: 'none', 
                 color: 'inherit',
                 cursor: 'pointer',
-                transition: 'transform 0.2s ease',
+                transition: 'all 0.2s ease',
+                backgroundColor: 'rgba(249, 115, 22, 0.1)',
+                borderColor: 'rgba(249, 115, 22, 0.2)',
                 '&:hover': {
-                  transform: 'translateY(-2px)',
+                  transform: 'translateY(-4px)',
+                  backgroundColor: 'rgba(249, 115, 22, 0.15)',
+                  borderColor: 'rgba(249, 115, 22, 0.3)',
                 }
               }}
             >
-              <Group>
-                <IconAlertTriangle size={24} color="var(--mantine-color-orange-filled)" />
+              <Stack gap="md">
+                <IconAlertTriangle 
+                  size={32} 
+                  style={{ 
+                    color: 'var(--mantine-color-orange-filled)',
+                    filter: 'drop-shadow(0 0 8px rgba(249, 115, 22, 0.4))'
+                  }} 
+                />
                 <div>
-                  <Text size="xl" fw={700}>{stats.scriptsWithUninstalledDeps}</Text>
-                  <Text size="sm" c="dimmed">Scripts with Missing Dependencies</Text>
+                  <Text size="xl" fw={700} style={{ fontSize: '2.5rem' }}>{stats.scriptsWithUninstalledDeps}</Text>
+                  <Text size="sm" c="dimmed" style={{ fontSize: '1.1rem', letterSpacing: '0.3px' }}>Missing Dependencies</Text>
                 </div>
-              </Group>
+              </Stack>
             </Card>
 
             <Card 
               withBorder 
               component={Link} 
               to="/scripts?filter=failed"
+              padding="xl"
               style={{ 
                 textDecoration: 'none', 
                 color: 'inherit',
                 cursor: 'pointer',
-                transition: 'transform 0.2s ease',
+                transition: 'all 0.2s ease',
+                backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                borderColor: 'rgba(239, 68, 68, 0.2)',
                 '&:hover': {
-                  transform: 'translateY(-2px)',
+                  transform: 'translateY(-4px)',
+                  backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                  borderColor: 'rgba(239, 68, 68, 0.3)',
                 }
               }}
             >
-              <Group>
-                <IconX size={24} color="var(--mantine-color-red-filled)" />
+              <Stack gap="md">
+                <IconX 
+                  size={32} 
+                  style={{ 
+                    color: 'var(--mantine-color-red-filled)',
+                    filter: 'drop-shadow(0 0 8px rgba(239, 68, 68, 0.4))'
+                  }} 
+                />
                 <div>
-                  <Text size="xl" fw={700}>{stats.scriptsWithFailedLastRun}</Text>
-                  <Text size="sm" c="dimmed">Scripts with Failed Last Run</Text>
+                  <Text size="xl" fw={700} style={{ fontSize: '2.5rem' }}>{stats.scriptsWithFailedLastRun}</Text>
+                  <Text size="sm" c="dimmed" style={{ fontSize: '1.1rem', letterSpacing: '0.3px' }}>Failed Last Run</Text>
                 </div>
-              </Group>
+              </Stack>
             </Card>
           </SimpleGrid>
           )}
 
           {/* Next Scheduled Script */}
           {stats.nextScheduledScript && (
-            <Card withBorder>
+            <Card 
+              withBorder
+              padding="lg"
+              style={{
+                backgroundColor: 'rgba(59, 130, 246, 0.05)',
+                borderColor: 'rgba(59, 130, 246, 0.2)',
+              }}
+            >
               <Group>
-                <IconCalendarTime size={24} color="var(--mantine-color-blue-filled)" />
+                <IconCalendarTime 
+                  size={32} 
+                  style={{ 
+                    color: 'var(--mantine-color-blue-filled)',
+                    filter: 'drop-shadow(0 0 8px rgba(59, 130, 246, 0.3))'
+                  }} 
+                />
                 <div>
-                  <Text fw={500}>Next Scheduled Execution</Text>
-                  <Text size="sm">
+                  <Text fw={500} size="lg">Next Scheduled Execution</Text>
+                  <Text size="md" style={{ marginTop: '4px' }}>
                     {stats.nextScheduledScript.name} at {stats.nextScheduledScript.scheduledTime}
                   </Text>
                 </div>
@@ -271,7 +328,18 @@ export function DashboardPage() {
           <Stack>
             <Group justify="space-between">
               <Title order={2}>Recent Executions</Title>
-              <Button component={Link} to="/executions" variant="light">
+              <Button 
+                component={Link} 
+                to="/executions" 
+                variant="light"
+                size="md"
+                style={{
+                  transition: 'all 0.2s ease',
+                  '&:hover': {
+                    transform: 'translateY(-2px)',
+                  }
+                }}
+              >
                 View All Executions
               </Button>
             </Group>
@@ -281,21 +349,38 @@ export function DashboardPage() {
                 <Card 
                   key={execution.id} 
                   withBorder
+                  padding="lg"
                   style={{
                     cursor: 'pointer',
-                    transition: 'transform 0.2s ease',
+                    transition: 'all 0.2s ease',
+                    backgroundColor: execution.status === ExecutionStatus.SUCCESS 
+                      ? 'rgba(34, 197, 94, 0.05)'
+                      : execution.status === ExecutionStatus.FAILURE
+                      ? 'rgba(239, 68, 68, 0.05)'
+                      : 'transparent',
+                    borderColor: execution.status === ExecutionStatus.SUCCESS 
+                      ? 'rgba(34, 197, 94, 0.2)'
+                      : execution.status === ExecutionStatus.FAILURE
+                      ? 'rgba(239, 68, 68, 0.2)'
+                      : 'rgba(59, 130, 246, 0.2)',
                     '&:hover': {
-                      transform: 'translateY(-2px)',
+                      transform: 'translateY(-4px)',
+                      backgroundColor: execution.status === ExecutionStatus.SUCCESS 
+                        ? 'rgba(34, 197, 94, 0.1)'
+                        : execution.status === ExecutionStatus.FAILURE
+                        ? 'rgba(239, 68, 68, 0.1)'
+                        : 'rgba(59, 130, 246, 0.1)',
                     }
                   }}
                   onClick={() => navigate(`/scripts/${execution.script_id}`)}
                 >
                   <Stack gap="xs">
                     <Group justify="space-between">
-                      <Text fw={500} lineClamp={1}>
+                      <Text fw={500} size="lg" lineClamp={1}>
                         {execution.scriptName}
                       </Text>
                       <Badge
+                        size="lg"
                         color={
                           execution.status === ExecutionStatus.SUCCESS ? 'green' :
                           execution.status === ExecutionStatus.FAILURE ? 'red' :
@@ -304,20 +389,20 @@ export function DashboardPage() {
                         }
                         leftSection={
                           execution.status === ExecutionStatus.SUCCESS ? (
-                            <IconCheck size={12} />
+                            <IconCheck size={14} />
                           ) : execution.status === ExecutionStatus.FAILURE ? (
-                            <IconX size={12} />
+                            <IconX size={14} />
                           ) : execution.status === ExecutionStatus.RUNNING ? (
-                            <IconLoader2 size={12} className="rotating" />
+                            <IconLoader2 size={14} className="rotating" />
                           ) : (
-                            <IconClock size={12} />
+                            <IconClock size={14} />
                           )
                         }
                       >
                         {execution.status}
                       </Badge>
                     </Group>
-                    <Text size="sm" c="dimmed">
+                    <Text size="sm" c="dimmed" style={{ letterSpacing: '0.3px' }}>
                       {formatDate(execution.started_at)}
                     </Text>
                   </Stack>

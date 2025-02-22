@@ -52,7 +52,24 @@ export function ScriptList() {
       }
       
       const data = await scriptsApi.list();
-      setScripts(data);
+      
+      // Ensure last_execution is properly loaded for each script
+      const scriptsWithExecutions = await Promise.all(
+        data.map(async (script) => {
+          try {
+            const executions = await scriptsApi.listExecutions(script.id, 1);
+            return {
+              ...script,
+              last_execution: executions[0] || null
+            };
+          } catch (error) {
+            console.error(`Failed to load executions for script ${script.id}:`, error);
+            return script;
+          }
+        })
+      );
+      
+      setScripts(scriptsWithExecutions);
     } catch (error) {
       console.error('Failed to load scripts:', error);
       if (isInitialLoad) {
@@ -102,7 +119,7 @@ export function ScriptList() {
       case 'inactive':
         return !script.is_active;
       case 'failed':
-        return script.last_execution?.status === ExecutionStatus.FAILURE;
+        return script.last_execution && script.last_execution.status === ExecutionStatus.FAILURE;
       case 'missing-deps':
         return script.dependencies.some(dep => !dep.installed_version);
       default:
